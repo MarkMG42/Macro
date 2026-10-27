@@ -1,0 +1,111 @@
+{
+  "source": "SolidWorks.Interop.sldworks 32.1.0 metadata",
+  "members": [
+    {
+      "type": "IDrawingDoc",
+      "method": "CreateDrawViewFromModelView3",
+      "signature": "20051280f40e0e0d0d0d",
+      "parameters": [
+        "ModelName",
+        "ViewName",
+        "LocX",
+        "LocY",
+        "LocZ"
+      ]
+    },
+    {
+      "type": "IView",
+      "method": "set_ReferencedConfiguration",
+      "signature": "2001010e",
+      "parameters": [
+        "Retval"
+      ]
+    },
+    {
+      "type": "IView",
+      "method": "get_ReferencedConfiguration",
+      "signature": "20000e",
+      "parameters": []
+    },
+    {
+      "type": "IView",
+      "method": "GetVisible",
+      "signature": "200002",
+      "parameters": []
+    },
+    {
+      "type": "IView",
+      "method": "SetVisible",
+      "signature": "2002010202",
+      "parameters": [
+        "Visible",
+        "DependentsToo"
+      ]
+    },
+    {
+      "type": "INote",
+      "method": "get_PropertyLinkedText",
+      "signature": "20000e",
+      "parameters": []
+    },
+    {
+      "type": "INote",
+      "method": "set_PropertyLinkedText",
+      "signature": "2001010e",
+      "parameters": [
+        "Txt"
+      ]
+    },
+    {
+      "type": "IEntity",
+      "method": "GetComponent",
+      "signature": "20001c",
+      "parameters": []
+    },
+    {
+      "type": "IAnnotation",
+      "method": "get_Layer",
+      "signature": "20000e",
+      "parameters": []
+    },
+    {
+      "type": "IAnnotation",
+      "method": "set_Layer",
+      "signature": "2001010e",
+      "parameters": [
+        "Retval"
+      ]
+    },
+    {
+      "type": "IAnnotation",
+      "method": "get_Visible",
+      "signature": "200008",
+      "parameters": []
+    },
+    {
+      "type": "IAnnotation",
+      "method": "set_Visible",
+      "signature": "20010108",
+      "parameters": [
+        "Retval"
+      ]
+    },
+    {
+      "type": "IDrawingDoc",
+      "method": "get_HiddenViewsVisible",
+      "signature": "200002",
+      "parameters": []
+    },
+    {
+      "type": "IDrawingDoc",
+      "method": "set_HiddenViewsVisible",
+      "signature": "20010102",
+      "parameters": [
+        "Visible"
+      ]
+    }
+  ],
+  "native_vba_compile": false,
+  "native_solidworks_33_4_1_run": false,
+  "note": "Inherited signatures; V16.18 adds no new SOLIDWORKS API calls."
+}

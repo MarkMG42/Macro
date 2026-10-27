@@ -1,0 +1,50 @@
+Option Explicit
+
+Private Type OPENFILENAMEW
+    lStructSize As Long
+    hwndOwner As LongPtr
+    hInstance As LongPtr
+    lpstrFilter As LongPtr
+    lpstrCustomFilter As LongPtr
+    nMaxCustFilter As Long
+    nFilterIndex As Long
+    lpstrFile As LongPtr
+    nMaxFile As Long
+    lpstrFileTitle As LongPtr
+    nMaxFileTitle As Long
+    lpstrInitialDir As LongPtr
+    lpstrTitle As LongPtr
+    Flags As Long
+    nFileOffset As Integer
+    nFileExtension As Integer
+    lpstrDefExt As LongPtr
+    lCustData As LongPtr
+    lpfnHook As LongPtr
+    lpTemplateName As LongPtr
+    pvReserved As LongPtr
+    dwReserved As Long
+    FlagsEx As Long
+End Type
+
+Private Declare PtrSafe Function GetOpenFileNameW _
+    Lib "comdlg32.dll" (ByRef p As OPENFILENAMEW) As Long
+
+Private Declare PtrSafe Function GetSaveFileNameW _
+    Lib "comdlg32.dll" (ByRef p As OPENFILENAMEW) As Long
+
+
+Private Const OFN_OVERWRITEPROMPT As Long = &H2
+Private Const OFN_HIDEREADONLY As Long = &H4
+Private Const OFN_PATHMUSTEXIST As Long = &H800
+Private Const OFN_FILEMUSTEXIST As Long = &H1000
+Private Const OFN_ALLOWMULTISELECT As Long = &H200
+Private Const OFN_EXPLORER As Long = &H80000
+
+Private Const INSERT_MOVE_TO_END As Long = 2
+Private Const RENAME_DUPLICATES As Long = 1
+
+Private swApp As SldWorks.SldWorks
+Private targetModel As SldWorks.ModelDoc2
+Private targetDraw As SldWorks.DrawingDoc
+Private targetPath As String
+

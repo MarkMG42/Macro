@@ -1,0 +1,14 @@
+{
+  "default_saves_direct_result": true,
+  "default_single_save3": true,
+  "default_no_reopen": true,
+  "post_save_memory_comparison": true,
+  "strict_reopen_available": true,
+  "main_rebuild_once_before_snapshot": true,
+  "source_mutation_guard_preserved": true,
+  "exact_output_path_guard_preserved": true,
+  "source_view_and_note_transfer_unchanged": true,
+  "form_unchanged": true,
+  "native_vba_compile": false,
+  "native_solidworks_run": false
+}
