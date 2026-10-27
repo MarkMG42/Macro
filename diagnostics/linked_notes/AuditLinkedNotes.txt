@@ -1,0 +1,181 @@
+Option Explicit
+
+Private auditFso As Object
+
+Public Sub main()
+    Dim app As SldWorks.SldWorks, model As SldWorks.ModelDoc2
+    Dim drawing As SldWorks.DrawingDoc, sheet As SldWorks.Sheet, view As SldWorks.View
+    Dim note As SldWorks.Note, layers As SldWorks.LayerMgr
+    Dim names As Variant, sheetName As Variant, notes As Variant, i As Long
+    Dim initialSheet As String, report As String, stem As String, folder As String
+    Dim stream As Object, count As Long, guard As Long, suffix As Long
+    Dim failure As String, complete As Boolean
+    On Error GoTo Failed
+    Set app = Application.SldWorks
+    Set model = app.ActiveDoc
+    If model Is Nothing Then Err.Raise vbObjectError + 1800, , "Откройте проверяемый чертёж."
+    If model.GetType <> swDocDRAWING Then Err.Raise vbObjectError + 1801, , "Активный документ должен быть чертежом."
+    If Len(model.GetPathName) = 0 Then Err.Raise vbObjectError + 1802, , "Нужен чертёж с путём к файлу. Автоматическое сохранение не выполняется."
+    Set auditFso = CreateObject("Scripting.FileSystemObject")
+    Set drawing = model
+    Set layers = model.GetLayerManager
+    Set sheet = drawing.GetCurrentSheet
+    initialSheet = sheet.GetName
+    folder = auditFso.GetParentFolderName(model.GetPathName)
+    stem = "NOTES_AUDIT_" & Left$(auditFso.GetBaseName(model.GetPathName), 60) & "_" & Format$(Now, "yyyymmdd_hhnnss")
+    report = auditFso.BuildPath(folder, stem & ".tsv")
+    Do While auditFso.FileExists(report)
+        suffix = suffix + 1
+        report = auditFso.BuildPath(folder, stem & "_" & suffix & ".tsv")
+    Loop
+    Set stream = auditFso.CreateTextFile(report, False, True)
+    stream.WriteLine "document" & vbTab & "sheet" & vbTab & "view" & vbTab & "note_name" & vbTab & _
+        "resolved_text" & vbTab & "property_linked_text" & vbTab & "annotation_name" & vbTab & _
+        "visible_state" & vbTab & "layer" & vbTab & "layer_visible" & vbTab & "layer_printable" & vbTab & _
+        "position_m" & vbTab & "attached_count" & vbTab & "attached_types" & vbTab & "attached_components" & vbTab & _
+        "contains_naimenovanie" & vbTab & "read_status"
+    names = drawing.GetSheetNames
+    If IsArray(names) = False Then Err.Raise vbObjectError + 1803, , "Не получен список листов."
+    For Each sheetName In names
+        ActivateAuditSheet drawing, CStr(sheetName)
+        Set view = drawing.GetFirstView
+        Do While Not view Is Nothing
+            guard = guard + 1
+            If guard > 100000 Then Err.Raise vbObjectError + 1804, , "Превышен предел обхода видов."
+            notes = view.GetNotes
+            If IsArray(notes) Then
+                For i = LBound(notes) To UBound(notes)
+                    Set note = notes(i)
+                    stream.WriteLine ReadNoteRow(model.GetPathName, CStr(sheetName), view, note, layers)
+                    count = count + 1
+                Next i
+            ElseIf view.GetNoteCount > 0 Then
+                Err.Raise vbObjectError + 1805, , "GetNotes не вернул массив при ненулевом GetNoteCount: " & view.GetName2
+            End If
+            Set view = view.GetNextView
+        Loop
+    Next sheetName
+    complete = True
+    GoTo Finish
+Failed:
+    failure = CStr(Err.Number) & ": " & Err.Description
+Finish:
+    On Error Resume Next
+    If Not stream Is Nothing Then stream.Close
+    If Not drawing Is Nothing Then
+        If Len(initialSheet) > 0 Then ActivateAuditSheet drawing, initialSheet
+    End If
+    If complete Then
+        MsgBox "Чтение завершено. Строк заметок: " & count & vbCrLf & _
+            "Проверьте read_status в отчёте: отдельные строки могут содержать ошибки чтения." & vbCrLf & _
+            report & vbCrLf & "Чертёж не сохранялся и заметки не изменялись.", vbInformation
+    Else
+        MsgBox "Проверка не завершена: " & failure & vbCrLf & _
+            "Отчёт, если создан, может быть неполным:" & vbCrLf & report, vbExclamation
+    End If
+    Set auditFso = Nothing
+End Sub
+
+Private Sub ActivateAuditSheet(ByVal drawing As SldWorks.DrawingDoc, ByVal name As String)
+    Dim sheet As SldWorks.Sheet, result As Boolean
+    Set sheet = drawing.GetCurrentSheet
+    If StrComp(sheet.GetName, name, vbBinaryCompare) = 0 Then Exit Sub
+    result = drawing.ActivateSheet(name)
+    Set sheet = drawing.GetCurrentSheet
+    If StrComp(sheet.GetName, name, vbBinaryCompare) <> 0 Then
+        Err.Raise vbObjectError + 1806, , "Не активирован лист " & name & "; API=" & CStr(result)
+    End If
+End Sub
+
+Private Function ReadNoteRow(ByVal docPath As String, ByVal sheetName As String, _
+    ByVal view As SldWorks.View, ByVal note As SldWorks.Note, ByVal layers As SldWorks.LayerMgr) As String
+    Dim cells(0 To 16) As String, annotation As SldWorks.Annotation, layer As SldWorks.Layer
+    Dim raw As String, position As Variant, attached As Variant, types As Variant
+    Dim obj As Object, i As Long, stage As String
+    On Error GoTo Failed
+    cells(0) = docPath: cells(1) = sheetName: cells(2) = view.GetName2
+    If note Is Nothing Then Err.Raise vbObjectError + 1807, , "Пустой объект Note в массиве."
+    stage = "Note.GetName": cells(3) = note.GetName
+    stage = "Note.GetText": cells(4) = note.GetText
+    stage = "Note.PropertyLinkedText": raw = note.PropertyLinkedText: cells(5) = raw
+    cells(15) = CStr(InStr(1, raw, "Наименование", vbTextCompare) > 0)
+    stage = "Note.GetAnnotation": Set annotation = note.GetAnnotation
+    If annotation Is Nothing Then Err.Raise vbObjectError + 1808, , "Не получена аннотация заметки."
+    stage = "Annotation.GetName": cells(6) = annotation.GetName
+    stage = "Annotation.Visible": cells(7) = CStr(annotation.Visible)
+    stage = "Annotation.Layer": cells(8) = annotation.Layer
+    cells(9) = "not-resolved": cells(10) = "not-resolved"
+    If Not layers Is Nothing Then
+        If Len(cells(8)) > 0 Then
+            stage = "LayerManager.GetLayer": Set layer = layers.GetLayer(cells(8))
+            If Not layer Is Nothing Then
+                cells(9) = CStr(layer.Visible): cells(10) = CStr(layer.Printable)
+            End If
+        End If
+    End If
+    stage = "Annotation.GetPosition": position = annotation.GetPosition
+    If IsArray(position) Then cells(11) = CStr(position(0)) & ";" & CStr(position(1)) & ";" & CStr(position(2))
+    stage = "Annotation.GetAttachedEntityCount3": cells(12) = CStr(annotation.GetAttachedEntityCount3)
+    stage = "Annotation.GetAttachedEntityTypes": types = annotation.GetAttachedEntityTypes
+    If IsArray(types) Then
+        For i = LBound(types) To UBound(types)
+            If Len(cells(13)) > 0 Then cells(13) = cells(13) & ";"
+            cells(13) = cells(13) & CStr(types(i))
+        Next i
+    End If
+    stage = "Annotation.GetAttachedEntities3": attached = annotation.GetAttachedEntities3
+    If IsArray(attached) Then
+        For i = LBound(attached) To UBound(attached)
+            Set obj = attached(i)
+            If Len(cells(14)) > 0 Then cells(14) = cells(14) & " | "
+            cells(14) = cells(14) & ComponentDescription(obj, view)
+        Next i
+    End If
+    cells(16) = "OK"
+    GoTo Done
+Failed:
+    cells(16) = "ERROR " & stage & ": " & CStr(Err.Number) & ": " & Err.Description
+Done:
+    For i = 0 To 16
+        If i > 0 Then ReadNoteRow = ReadNoteRow & vbTab
+        ReadNoteRow = ReadNoteRow & CellText(cells(i))
+    Next i
+End Function
+
+Private Function ComponentDescription(ByVal obj As Object, ByVal view As SldWorks.View) As String
+    Dim entity As SldWorks.Entity, component As SldWorks.Component2
+    Dim drawingComponent As SldWorks.DrawingComponent
+    On Error GoTo Failed
+    If obj Is Nothing Then
+        ComponentDescription = "NULL_ATTACHMENT"
+        Exit Function
+    End If
+    If TypeOf obj Is SldWorks.Component2 Then
+        Set component = obj
+    ElseIf TypeOf obj Is SldWorks.DrawingComponent Then
+        Set drawingComponent = obj
+        Set component = drawingComponent.Component
+    Else
+        Set entity = obj
+        Set component = entity.GetComponent
+        If component Is Nothing Then
+            Set drawingComponent = entity.GetDrawingComponent(view)
+            If Not drawingComponent Is Nothing Then Set component = drawingComponent.Component
+        End If
+    End If
+    If component Is Nothing Then
+        ComponentDescription = "NO_COMPONENT_RETURNED; type=" & TypeName(obj)
+    Else
+        ComponentDescription = component.Name2 & "; model=" & component.GetPathName & _
+            "; configuration=" & component.ReferencedConfiguration
+    End If
+    Exit Function
+Failed:
+    ComponentDescription = "ATTACHMENT_READ_ERROR " & CStr(Err.Number) & ": " & Err.Description
+End Function
+
+Private Function CellText(ByVal value As String) As String
+    value = Replace(value, vbTab, "\t")
+    value = Replace(value, vbCr, "\r")
+    CellText = Replace(value, vbLf, "\n")
+End Function

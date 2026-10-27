@@ -1,0 +1,33 @@
+{
+  "vendor": "SolidWorks.Interop.sldworks 32.1.0",
+  "members": {
+    "IView.GetNotes": [],
+    "IView.GetNoteCount": [],
+    "INote.GetText": [],
+    "INote.GetName": [],
+    "INote.GetAnnotation": [],
+    "INote.get_PropertyLinkedText": [],
+    "IEntity.GetComponent": [],
+    "IEntity.GetDrawingComponent": [
+      "View"
+    ],
+    "IAnnotation.GetPosition": [],
+    "IAnnotation.GetName": [],
+    "IAnnotation.get_Layer": [],
+    "IAnnotation.GetAttachedEntityTypes": [],
+    "IAnnotation.get_Visible": [],
+    "IAnnotation.GetAttachedEntityCount3": [],
+    "IAnnotation.GetAttachedEntities3": [],
+    "ILayer.get_Visible": [],
+    "ILayer.get_Printable": [],
+    "ILayerMgr.GetLayer": [
+      "NameIn"
+    ],
+    "IModelDoc2.GetLayerManager": [],
+    "IComponent2.get_ReferencedConfiguration": [],
+    "IComponent2.GetPathName": [],
+    "IComponent2.get_Name2": [],
+    "IDrawingComponent.get_Component": []
+  },
+  "native_execution": false
+}
