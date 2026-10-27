@@ -1,0 +1,73 @@
+--- V16.7/merge_core.vba
++++ V16.8/merge_core.vba
+@@ -1,10 +1,10 @@
+-' MERGE_DRAWINGS_V16_7_SHEET_PROPERTIES_20261027
++' MERGE_DRAWINGS_V16_8_EXPLICIT_PROPERTY_VIEW_20261027
+ ' SOLIDWORKS 2025 x64 / VBA7. Entry point: main.
+ ' Source files are read-only inputs. Only private working drawings are edited.
+ ' Native section/detail features are transferred with their complete parent chain.
+ ' A successful PasteSheet is never accepted without verifying the view graph.
+ 
+-Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_7_SHEET_PROPERTIES_20261027"
++Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_8_EXPLICIT_PROPERTY_VIEW_20261027"
+ Private Const GEOM_TOL As Double = 0.000001 ' metres; 0.001 mm
+ Private Const VALUE_TOL As Double = 0.0000001
+ Private Const MAX_ITEMS As Long = 100000
+@@ -224,8 +224,7 @@
+         EnsureSheetActive targetModel, destSheet, "Restore CustomPropertyView"
+         targetModel.ClearSelection2 True
+         Set dest = targetDraw.GetCurrentSheet
+-        name = CStr(s("PropertyView"))
+-        If viewMap.Exists(name) Then name = CStr(viewMap(name))
++        name = MappedPropertyView(original, CStr(sheetKey), viewMap)
+         LogLine "PROPERTY VIEW before: sheet=" & destSheet & "; source=[" & _
+             CStr(s("PropertyView")) & "]; requested=[" & name & "]; current=[" & dest.CustomPropertyView & "]"
+         dest.CustomPropertyView = name
+@@ -241,8 +240,7 @@
+         Set rec = CloneRecord(original("Sheets")(CStr(sheetKey)))
+         name = CStr(sheetMap(CStr(sheetKey)))
+         rec("Name") = name
+-        destSheet = CStr(rec("PropertyView"))
+-        If viewMap.Exists(destSheet) Then rec("PropertyView") = CStr(viewMap(destSheet))
++        rec("PropertyView") = MappedPropertyView(original, CStr(sheetKey), viewMap)
+         expectedResult("Sheets").Add name, rec
+         expectedResult("Order").Add name
+     Next sheetKey
+@@ -270,6 +268,28 @@
+     CloseOwnedDrawing source
+     On Error GoTo 0
+     Err.Raise e, "AppendDrawing", inputPath & vbCrLf & message
++End Function
++
++Private Function MappedPropertyView(ByVal snapshot As Object, ByVal sheetName As String, _
++    ByVal viewMap As Object) As String
++    Dim rec As Object, name As String, originalMode As String
++    Set rec = snapshot("Sheets")(sheetName)
++    name = CStr(rec("PropertyView"))
++    originalMode = name
++    ' A real view name takes precedence over a localized special label.
++    If Not viewMap.Exists(name) Then
++        If SameText(name, "По умолчанию") Or SameText(name, "Default") Then
++            name = CStr(rec("FirstView"))
++            Require Len(name) > 0, "Нет первого вида для источника свойств листа " & sheetName
++            Require viewMap.Exists(name), "Не сопоставлен первый вид свойств листа " & sheetName & ": " & name
++            Require SameText(CStr(snapshot("Views")(name)("Sheet")), sheetName), _
++                "Первый вид свойств относится к другому листу: " & name
++            LogLine "PROPERTY VIEW resolve default: sourceSheet=" & sheetName & _
++                "; mode=[" & originalMode & "]; sourceView=[" & name & "]; mappedView=[" & CStr(viewMap(name)) & "]"
++        End If
++    End If
++    If viewMap.Exists(name) Then name = CStr(viewMap(name))
++    MappedPropertyView = name
+ End Function
+ 
+ Private Function CaptureDrawing(ByVal model As SldWorks.ModelDoc2) As Object
+@@ -312,6 +332,8 @@
+         sheets.Add sheet.GetName, sheetRec
+         order.Add sheet.GetName
+         Set view = view.GetNextView ' Exclude the sheet pseudo-view exactly once.
++        sheetRec.Add "FirstView", ""
++        If Not view Is Nothing Then sheetRec("FirstView") = view.GetName2
+         Do While Not view Is Nothing
+             guard = guard + 1
+             Require guard <= MAX_ITEMS, "Зацикливание обхода видов."

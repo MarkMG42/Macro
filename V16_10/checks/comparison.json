@@ -1,0 +1,31 @@
+{
+  "v16_7_v16_8_identical_inputs_sha256": {
+    "v12_ui.txt": "f1597502fab9336b4a51685c3a38b8d278e794fa488e4a853e88e062c0f02118",
+    "v12_header.txt": "43da78c105aa2af0150f52034f7122ace6fd3d1c82086f6e2d608897f98e1257",
+    "v12_helpers.txt": "5f32e5ac6e8e66570b4683e774faf6a258d5fc20300d361c12f620c105a87fd2",
+    "build_release.py": "ba26e3fe1e029d67835bea4b6051ff96b787b1a56239b5e6e4780cb474b7d0ca"
+  },
+  "restored_ui_functions_sha256": {
+    "GetOrderedSourceFiles": "26864183b9c38e02cb120cd6f0ea1076ee2c8db296bb04d753ca22d276f0c488",
+    "DragDropOrderDialog": "af131650aea86ca53defc3fb2117cb623427eae96b0da8551dd3923cc1559368",
+    "JsQuote": "ca791a85f1949f25ee9fbb628ec5cbfe22ecfe99c9351348dedb06d96f088bf8"
+  },
+  "pdf_sha256": "c51a38aca83d3482298996476a57edb6c957c9cd76998cfc1e56f280133b9e64",
+  "github_v16_7_bytes_matched_git": true,
+  "github_v16_8_bytes_matched_git": true,
+  "antivirus_scan_performed": false,
+  "v16_8_added_archive_paths": [
+    "checks/v16_8_static.json"
+  ],
+  "v16_8_changed_archive_paths": [
+    "FIX_RU.md",
+    "MERGE_DRAWINGS_V16.txt",
+    "MergeDrawingsV16.bas",
+    "README_RU.md",
+    "RESEARCH.md",
+    "SHA256SUMS.txt",
+    "STATUS.md",
+    "VALIDATION.md",
+    "tools/merge_core.vba"
+  ]
+}

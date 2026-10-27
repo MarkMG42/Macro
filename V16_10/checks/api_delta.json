@@ -1,0 +1,15 @@
+{
+  "vendor": "SolidWorks.Interop.sldworks 32.1.0",
+  "method": "ISheet.SetProperties2",
+  "parameters": [
+    "PaperSz",
+    "Templ",
+    "Scale1",
+    "Scale2",
+    "FirstAngle",
+    "Width",
+    "Height",
+    "SameCustomPropAsSheetInDocProp"
+  ],
+  "native_execution": false
+}
