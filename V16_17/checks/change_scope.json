@@ -1,0 +1,13 @@
+{
+  "form_unchanged": true,
+  "ui_helpers_unchanged": true,
+  "direct_source_has_readonly_open": true,
+  "source_mutation_requires_owned_path": true,
+  "selected_sheet_rebuild": true,
+  "single_sheet_mapping_capture": true,
+  "checkpoint_on_failure": true,
+  "live_links_retained": true,
+  "attachment_identity_guard": true,
+  "linked_text_checked_after_reopen": true,
+  "native_solidworks_run": false
+}
