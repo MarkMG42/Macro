@@ -1,0 +1,13 @@
+{
+  "changed_existing_procedures": [
+    "VerifyDrawing"
+  ],
+  "new_procedures": [
+    "PropertyViewReadbackMatches"
+  ],
+  "form_unchanged": true,
+  "property_model_guards_preserved": true,
+  "view_transfer_unchanged": true,
+  "save_and_pdf_unchanged": true,
+  "native_execution": false
+}
