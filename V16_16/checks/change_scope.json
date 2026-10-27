@@ -1,0 +1,16 @@
+{
+  "changed_core_procedures": [
+    "InitRunFolder",
+    "RequireOwnedPath",
+    "main"
+  ],
+  "changed_helpers": [
+    "GetAllDrawingsInFolder"
+  ],
+  "form_unchanged": true,
+  "geometry_and_validation_unchanged": true,
+  "exact_final_path_exception": true,
+  "final_paths_checked_before_registration": true,
+  "stable_v16_15_archive_sha256": "2013dbaced632868568ecba7ea65de80cb7e1e21389ca3b32d688cd321870ab7",
+  "native_execution": false
+}
