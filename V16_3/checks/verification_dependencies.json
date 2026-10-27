@@ -1,0 +1,6 @@
+{
+  "parser/vbaLexer.g4": "816f66e491bba0cad6116242f3b3e85d3719a61c954f7204743f4ffdde6caf89",
+  "parser/vbaParser.g4": "b79cac6274368cbf1ff95a6d255a27c028eac696667436c00d40b280ea14ebbc",
+  "sldworks32.1.nupkg": "b5eaea9758a3c0923ba92b73565d3201e7bca945dd2e9cfe24462da3c2365a1e",
+  "swconst32.1.nupkg": "077a1d3c334e9aa2a4ecb5b4baff3a43714391d6572d2101af3f0082ccdbb73d"
+}
