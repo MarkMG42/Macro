@@ -1,0 +1,18 @@
+{
+  "changed_existing_procedures": [
+    "VerifyDrawing",
+    "main"
+  ],
+  "final_step_sequence": [
+    "Set targetDraw = targetModel",
+    "RebuildDrawing targetModel",
+    "Set actual = CaptureDrawing(targetModel)",
+    "VerifyDrawing expectedResult, actual, \"PUBLISHED drawing\"",
+    "saved = targetModel.Save3",
+    "saved = ExportDrawingToPDF"
+  ],
+  "exact_hatch_check_preserved": true,
+  "form_unchanged": true,
+  "pdf_export_unchanged": true,
+  "native_execution": false
+}
