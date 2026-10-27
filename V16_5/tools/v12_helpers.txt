@@ -1,0 +1,376 @@
+Private Function PickOneDrawing( _
+    ByVal dialogTitle As String, _
+    ByVal initialFolder As String) As String
+
+    Dim ofn As OPENFILENAMEW
+    Dim filter As String
+    Dim buffer As String
+    Dim titleBuffer As String
+    Dim p As Long
+
+    filter = "Чертежи SOLIDWORKS (*.slddrw)" & vbNullChar & _
+             "*.slddrw" & vbNullChar & _
+             "Все файлы (*.*)" & vbNullChar & _
+             "*.*" & vbNullChar & vbNullChar
+
+    buffer = String$(32767, vbNullChar)
+    titleBuffer = String$(1024, vbNullChar)
+
+    With ofn
+        .lStructSize = LenB(ofn)
+        .lpstrFilter = StrPtr(filter)
+        .nFilterIndex = 1
+        .lpstrFile = StrPtr(buffer)
+        .nMaxFile = Len(buffer)
+        .lpstrFileTitle = StrPtr(titleBuffer)
+        .nMaxFileTitle = Len(titleBuffer)
+        .lpstrTitle = StrPtr(dialogTitle)
+        .Flags = OFN_EXPLORER Or OFN_FILEMUSTEXIST Or _
+                 OFN_PATHMUSTEXIST Or OFN_HIDEREADONLY
+
+        If initialFolder <> "" Then .lpstrInitialDir = StrPtr(initialFolder)
+    End With
+
+    If GetOpenFileNameW(ofn) = 0 Then
+        PickOneDrawing = ""
+        Exit Function
+    End If
+
+    p = InStr(1, buffer, vbNullChar)
+
+    If p > 0 Then
+        PickOneDrawing = Left$(buffer, p - 1)
+    Else
+        PickOneDrawing = buffer
+    End If
+
+End Function
+
+Private Function GetAllDrawingsInFolder( _
+    ByVal folderPath As String, _
+    ByVal mainPath As String) As Collection
+
+    Dim fso As Object
+    Dim folder As Object
+    Dim file As Object
+    Dim files As New Collection
+    Dim seen As Object
+    Dim fullPath As String
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set seen = CreateObject("Scripting.Dictionary")
+    seen.CompareMode = vbTextCompare
+
+    If Len(folderPath) = 0 Or Not fso.FolderExists(folderPath) Then
+        Set GetAllDrawingsInFolder = files
+        Exit Function
+    End If
+
+    Set folder = fso.GetFolder(folderPath)
+    For Each file In folder.files
+        If LCase$(fso.GetExtensionName(file.name)) = "slddrw" Then
+            If Left$(file.name, 2) = "~$" Then
+                Debug.Print "ВРЕМЕННЫЙ ФАЙЛ ПРОПУЩЕН: " & file.Path
+            Else
+            fullPath = file.Path
+            If StrComp(Replace(fullPath, "/", "\"), Replace(mainPath, "/", "\"), vbTextCompare) <> 0 Then
+                If Not seen.Exists(fullPath) Then
+                    seen.Add fullPath, True
+                    files.Add fullPath
+                End If
+            Else
+                Debug.Print "Основной чертёж автоматически исключён: " & fullPath
+            End If
+            End If
+        End If
+    Next file
+
+    Set GetAllDrawingsInFolder = files
+End Function
+
+' =========================================================
+' ДИАЛОГ ВЫБОРА НЕСКОЛЬКИХ ЧЕРТЕЖЕЙ
+' =========================================================
+
+Private Function PickMultipleDrawings( _
+    ByVal dialogTitle As String, _
+    ByVal initialFolder As String) As Collection
+
+    Dim ofn As OPENFILENAMEW
+    Dim filter As String
+    Dim buffer As String
+    Dim titleBuffer As String
+    Dim raw As String
+    Dim parts As Variant
+    Dim files As New Collection
+    Dim folder As String
+    Dim i As Long
+    Dim p As Long
+
+    filter = "Чертежи SOLIDWORKS (*.slddrw)" & vbNullChar & _
+             "*.slddrw" & vbNullChar & _
+             "Все файлы (*.*)" & vbNullChar & _
+             "*.*" & vbNullChar & vbNullChar
+
+    buffer = String$(32767, vbNullChar)
+    titleBuffer = String$(1024, vbNullChar)
+
+    With ofn
+        .lStructSize = LenB(ofn)
+        .lpstrFilter = StrPtr(filter)
+        .nFilterIndex = 1
+        .lpstrFile = StrPtr(buffer)
+        .nMaxFile = Len(buffer)
+        .lpstrFileTitle = StrPtr(titleBuffer)
+        .nMaxFileTitle = Len(titleBuffer)
+        .lpstrTitle = StrPtr(dialogTitle)
+        .Flags = OFN_EXPLORER Or OFN_ALLOWMULTISELECT Or _
+                 OFN_FILEMUSTEXIST Or OFN_PATHMUSTEXIST Or _
+                 OFN_HIDEREADONLY
+
+        If initialFolder <> "" Then .lpstrInitialDir = StrPtr(initialFolder)
+    End With
+
+    If GetOpenFileNameW(ofn) = 0 Then
+        Set PickMultipleDrawings = Nothing
+        Exit Function
+    End If
+
+    p = InStr(1, buffer, vbNullChar & vbNullChar)
+
+    If p > 0 Then
+        raw = Left$(buffer, p - 1)
+    Else
+        raw = buffer
+    End If
+
+    parts = Split(raw, vbNullChar)
+
+    If UBound(parts) = 0 Then
+
+        If Len(CStr(parts(0))) > 0 Then
+            files.Add CStr(parts(0))
+        End If
+
+    Else
+
+        folder = CStr(parts(0))
+
+        For i = 1 To UBound(parts)
+            If Len(CStr(parts(i))) > 0 Then
+                files.Add folder & "\" & CStr(parts(i))
+            End If
+        Next i
+
+    End If
+
+    Set PickMultipleDrawings = files
+
+End Function
+
+' =========================================================
+' ДИАЛОГ СОХРАНЕНИЯ PDF
+' =========================================================
+
+Private Function PickPdfPath( _
+    ByVal initialFolder As String, _
+    ByVal defaultName As String) As String
+
+    Dim ofn As OPENFILENAMEW
+    Dim filter As String
+    Dim buffer As String
+    Dim titleBuffer As String
+    Dim extension As String
+    Dim p As Long
+
+    filter = "PDF (*.pdf)" & vbNullChar & "*.pdf" & vbNullChar & vbNullChar
+
+    buffer = defaultName & String$(32767 - Len(defaultName), vbNullChar)
+    titleBuffer = String$(1024, vbNullChar)
+    extension = "pdf"
+
+    With ofn
+        .lStructSize = LenB(ofn)
+        .lpstrFilter = StrPtr(filter)
+        .nFilterIndex = 1
+        .lpstrFile = StrPtr(buffer)
+        .nMaxFile = Len(buffer)
+        .lpstrFileTitle = StrPtr(titleBuffer)
+        .nMaxFileTitle = Len(titleBuffer)
+        .lpstrTitle = StrPtr("Сохранить объединенный PDF")
+        .lpstrDefExt = StrPtr(extension)
+        .Flags = OFN_EXPLORER Or OFN_PATHMUSTEXIST Or _
+                 OFN_OVERWRITEPROMPT Or OFN_HIDEREADONLY
+
+        If initialFolder <> "" Then .lpstrInitialDir = StrPtr(initialFolder)
+    End With
+
+    If GetSaveFileNameW(ofn) = 0 Then
+        PickPdfPath = ""
+        Exit Function
+    End If
+
+    p = InStr(1, buffer, vbNullChar)
+
+    If p > 0 Then
+        PickPdfPath = Left$(buffer, p - 1)
+    Else
+        PickPdfPath = buffer
+    End If
+
+    If LCase$(Right$(PickPdfPath, 4)) <> ".pdf" Then
+        PickPdfPath = PickPdfPath & ".pdf"
+    End If
+
+End Function
+
+' =========================================================
+' ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+' =========================================================
+
+Private Function GetFolder(ByVal filePath As String) As String
+
+    Dim p As Long
+
+    p = InStrRev(filePath, "\")
+
+    If p > 0 Then
+        GetFolder = Left$(filePath, p - 1)
+    Else
+        GetFolder = ""
+    End If
+
+End Function
+
+Private Function GetBaseName(ByVal filePath As String) As String
+
+    Dim name As String
+    Dim p As Long
+
+    p = InStrRev(filePath, "\")
+
+    If p > 0 Then
+        name = Mid$(filePath, p + 1)
+    Else
+        name = filePath
+    End If
+
+    p = InStrRev(name, ".")
+
+    If p > 0 Then name = Left$(name, p - 1)
+
+    GetBaseName = name
+
+End Function
+
+
+
+
+
+
+' =========================================================
+' ЭКСПОРТ ЧЕРТЕЖА В PDF
+' =========================================================
+
+Private Function ExportDrawingToPDF( _
+    ByVal swModel As Object, _
+    ByVal pdfPath As String, _
+    ByRef exportErrors As Long, _
+    ByRef exportWarnings As Long) As Boolean
+
+    On Error GoTo ExportError
+
+    Dim swAppLocal As Object
+    Dim pdfDataLocal As Object
+    Dim modelPathLocal As String
+    Dim sheetNamesLocal As Variant
+    Dim iLocal As Long
+    Dim saveResult As Boolean
+
+    ExportDrawingToPDF = False
+    exportErrors = 0
+    exportWarnings = 0
+
+    Debug.Print String(60, "=")
+    Debug.Print "Начало экспорта PDF"
+
+    If swModel Is Nothing Then
+        Debug.Print "ОШИБКА: документ не передан в функцию."
+        Exit Function
+    End If
+
+    If swModel.GetType <> 3 Then
+        Debug.Print "ОШИБКА: переданный документ не является чертежом."
+        Exit Function
+    End If
+
+    modelPathLocal = swModel.GetPathName
+
+    If Len(modelPathLocal) = 0 Then
+        Debug.Print "ОШИБКА: чертёж не сохранён."
+        Exit Function
+    End If
+
+    If Len(pdfPath) = 0 Then
+        Debug.Print "ОШИБКА: путь PDF не задан."
+        Exit Function
+    End If
+
+    Set swAppLocal = Application.SldWorks
+    sheetNamesLocal = swModel.GetSheetNames
+
+    Debug.Print "Чертёж: " & modelPathLocal
+    Debug.Print "Количество листов: " & _
+        (UBound(sheetNamesLocal) - LBound(sheetNamesLocal) + 1)
+
+    For iLocal = LBound(sheetNamesLocal) To UBound(sheetNamesLocal)
+        Debug.Print "Лист: " & CStr(sheetNamesLocal(iLocal))
+    Next iLocal
+
+    Debug.Print "Путь PDF: " & pdfPath
+
+    ' Используем проверенный способ экспорта без вызова SetSheets.
+    Set pdfDataLocal = swAppLocal.GetExportFileData(1)
+
+    If pdfDataLocal Is Nothing Then
+        Debug.Print "ОШИБКА: не удалось создать настройки экспорта PDF."
+        Exit Function
+    End If
+
+    pdfDataLocal.ExportAs3D = False
+    pdfDataLocal.ViewPdfAfterSaving = False
+
+    Debug.Print "Запуск SaveAs..."
+
+    saveResult = swModel.extension.SaveAs( _
+        pdfPath, _
+        0, _
+        1, _
+        pdfDataLocal, _
+        exportErrors, _
+        exportWarnings)
+
+    Debug.Print "SaveAs: " & CStr(saveResult)
+    Debug.Print "Ошибки: " & CStr(exportErrors)
+    Debug.Print "Предупреждения: " & CStr(exportWarnings)
+
+    If saveResult And exportErrors = 0 Then
+        ExportDrawingToPDF = True
+        Debug.Print "УСПЕХ: PDF сохранён."
+        Debug.Print "Ожидаемое количество листов: " & _
+            (UBound(sheetNamesLocal) - LBound(sheetNamesLocal) + 1)
+    Else
+        Debug.Print "ОШИБКА: не удалось сохранить PDF."
+    End If
+
+    Debug.Print "Конец экспорта PDF"
+    Exit Function
+
+ExportError:
+    Debug.Print "ОШИБКА VBA при экспорте: " & _
+                Err.Number & " — " & Err.Description
+    ExportDrawingToPDF = False
+
+End Function
+
+
