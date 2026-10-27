@@ -1,0 +1,185 @@
+Option Explicit
+
+Private WithEvents filesList As MSForms.ListBox
+Private WithEvents btnUp As MSForms.CommandButton
+Private WithEvents btnDown As MSForms.CommandButton
+Private WithEvents btnRemove As MSForms.CommandButton
+Private WithEvents btnAdd As MSForms.CommandButton
+Private WithEvents btnFolder As MSForms.CommandButton
+Private WithEvents btnOK As MSForms.CommandButton
+Private WithEvents btnCancel As MSForms.CommandButton
+Private mFiles As Collection
+Private mMainPath As String
+Private mAccepted As Boolean
+
+Private Sub UserForm_Initialize()
+    Dim note As MSForms.Label
+    Me.Caption = "Порядок исходных чертежей"
+    Me.Width = 730
+    Me.Height = 405
+    Me.StartUpPosition = 1
+    Set note = Me.Controls.Add("Forms.Label.1", "lblHelp", True)
+    note.Caption = "Основной чертёж остаётся первым. Выберите источник и меняйте порядок кнопками Вверх/Вниз."
+    note.Left = 12: note.Top = 12: note.Width = 690: note.Height = 30
+    Set filesList = Me.Controls.Add("Forms.ListBox.1", "lstFiles", True)
+    filesList.Left = 12: filesList.Top = 45: filesList.Width = 690: filesList.Height = 250
+    filesList.ColumnCount = 2
+    filesList.ColumnWidths = "32 pt; 630 pt"
+    filesList.MultiSelect = fmMultiSelectSingle
+    Set btnUp = AddButton("btnUp", "Вверх", 12, 305, 75)
+    Set btnDown = AddButton("btnDown", "Вниз", 92, 305, 75)
+    Set btnRemove = AddButton("btnRemove", "Убрать", 172, 305, 75)
+    Set btnAdd = AddButton("btnAdd", "Добавить файлы", 260, 305, 125)
+    Set btnFolder = AddButton("btnFolder", "Добавить папку", 390, 305, 125)
+    Set btnOK = AddButton("btnOK", "Продолжить", 480, 340, 110)
+    Set btnCancel = AddButton("btnCancel", "Отмена", 595, 340, 105)
+    btnOK.Default = True
+    btnCancel.Cancel = True
+    Set mFiles = New Collection
+End Sub
+
+Private Function AddButton(ByVal controlName As String, ByVal buttonCaption As String, _
+    ByVal x As Single, ByVal y As Single, ByVal buttonWidth As Single) As MSForms.CommandButton
+    Dim button As MSForms.CommandButton
+    Set button = Me.Controls.Add("Forms.CommandButton.1", controlName, True)
+    button.Caption = buttonCaption
+    button.Left = x: button.Top = y: button.Width = buttonWidth: button.Height = 26
+    Set AddButton = button
+End Function
+
+Public Sub LoadCandidates(ByVal candidates As Collection, ByVal mainPath As String)
+    mMainPath = mainPath
+    mAccepted = False
+    Set mFiles = New Collection
+    AddCandidates candidates
+    RefreshList 0
+End Sub
+
+Public Property Get Accepted() As Boolean
+    Accepted = mAccepted
+End Property
+
+Public Property Get SelectedFiles() As Collection
+    Set SelectedFiles = mFiles
+End Property
+
+Private Sub AddCandidates(ByVal candidates As Collection)
+    Dim fso As Object, seen As Object, item As Variant, path As String
+    If candidates Is Nothing Then Exit Sub
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set seen = CreateObject("Scripting.Dictionary")
+    seen.CompareMode = vbTextCompare
+    seen(Replace(mMainPath, "/", "\")) = True
+    For Each item In mFiles
+        seen(Replace(CStr(item), "/", "\")) = True
+    Next item
+    For Each item In candidates
+        path = Replace(Trim$(CStr(item)), "/", "\")
+        If Len(path) > 0 Then
+            If LCase$(fso.GetExtensionName(path)) = "slddrw" And Left$(fso.GetFileName(path), 2) <> "~$" Then
+                If seen.Exists(path) = False Then
+                    If fso.FileExists(path) = False Then Err.Raise vbObjectError + 1701, , "Файл не найден: " & path
+                    seen.Add path, True
+                    mFiles.Add path
+                End If
+            End If
+        End If
+    Next item
+End Sub
+
+Private Sub RefreshList(ByVal selectedIndex As Long)
+    Dim i As Long
+    filesList.Clear
+    For i = 1 To mFiles.Count
+        filesList.AddItem CStr(i)
+        filesList.List(i - 1, 1) = CStr(mFiles(i))
+    Next i
+    If mFiles.Count > 0 Then
+        If selectedIndex < 0 Then selectedIndex = 0
+        If selectedIndex >= mFiles.Count Then selectedIndex = mFiles.Count - 1
+        filesList.ListIndex = selectedIndex
+    End If
+End Sub
+
+Private Sub MoveSelected(ByVal offset As Long)
+    Dim source As Long, destination As Long, path As String
+    source = filesList.ListIndex + 1
+    destination = source + offset
+    If source < 1 Or destination < 1 Or destination > mFiles.Count Then Exit Sub
+    path = CStr(mFiles(source))
+    mFiles.Remove source
+    If destination > mFiles.Count Then
+        mFiles.Add path
+    Else
+        mFiles.Add path, , destination
+    End If
+    RefreshList destination - 1
+End Sub
+
+Private Sub btnUp_Click()
+    MoveSelected -1
+End Sub
+
+Private Sub btnDown_Click()
+    MoveSelected 1
+End Sub
+
+Private Sub btnRemove_Click()
+    Dim index As Long
+    index = filesList.ListIndex
+    If index < 0 Then Exit Sub
+    mFiles.Remove index + 1
+    RefreshList index
+End Sub
+
+Private Sub btnAdd_Click()
+    Dim candidates As Collection
+    On Error GoTo Failed
+    Set candidates = OrderPickFiles(mMainPath)
+    AddCandidates candidates
+    RefreshList filesList.ListIndex
+    Exit Sub
+Failed:
+    MsgBox Err.Description, vbExclamation
+End Sub
+
+Private Sub btnFolder_Click()
+    Dim folder As String, candidates As Collection, fso As Object
+    On Error GoTo Failed
+    folder = Trim$(VBA.InputBox("Вставьте полный путь к папке с чертежами:", "Добавить папку"))
+    If Len(folder) = 0 Then Exit Sub
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    If fso.FolderExists(folder) = False Then Err.Raise vbObjectError + 1702, , "Папка не найдена: " & folder
+    Set candidates = OrderFolderFiles(folder, mMainPath)
+    AddCandidates candidates
+    RefreshList filesList.ListIndex
+    Exit Sub
+Failed:
+    MsgBox Err.Description, vbExclamation
+End Sub
+
+Private Sub btnOK_Click()
+    Dim fso As Object, item As Variant
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    For Each item In mFiles
+        If fso.FileExists(CStr(item)) = False Then
+            MsgBox "Файл исчез из списка: " & CStr(item), vbExclamation
+            Exit Sub
+        End If
+    Next item
+    mAccepted = True
+    Me.Hide
+End Sub
+
+Private Sub btnCancel_Click()
+    mAccepted = False
+    Me.Hide
+End Sub
+
+Private Sub UserForm_QueryClose(Cancel As Integer, CloseMode As Integer)
+    If CloseMode = vbFormControlMenu Then
+        Cancel = 1
+        mAccepted = False
+        Me.Hide
+    End If
+End Sub

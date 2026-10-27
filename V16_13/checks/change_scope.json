@@ -1,0 +1,14 @@
+{
+  "changed_existing_procedures": [
+    "AppendDrawing",
+    "MappedPropertyView"
+  ],
+  "new_procedures": [
+    "LocalPropertySourceView"
+  ],
+  "imported_source_mode": false,
+  "form_unchanged": true,
+  "property_model_validation_unchanged": true,
+  "pdf_helpers_unchanged": true,
+  "native_execution": false
+}
