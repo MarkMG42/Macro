@@ -1,0 +1,42 @@
+{
+  "bas_txt_equivalent": true,
+  "max_continuations": 18,
+  "unique_procedures": 49,
+  "changed_existing_core_procedures": [
+    "CaptureDrawing",
+    "MoveView",
+    "RestoreView",
+    "RebuildDrawing",
+    "CheckSavedInput",
+    "Require"
+  ],
+  "pdf_matches_v16_5": true,
+  "boolean_numeric_model": [
+    {
+      "raw": 0,
+      "bitwise_not": -1,
+      "old_not_condition_enters": true,
+      "new_require_accepts": false,
+      "new_rebuild_fallback": true,
+      "normalized": 0
+    },
+    {
+      "raw": 1,
+      "bitwise_not": -2,
+      "old_not_condition_enters": true,
+      "new_require_accepts": true,
+      "new_rebuild_fallback": false,
+      "normalized": -1
+    },
+    {
+      "raw": -1,
+      "bitwise_not": 0,
+      "old_not_condition_enters": false,
+      "new_require_accepts": true,
+      "new_rebuild_fallback": false,
+      "normalized": -1
+    }
+  ],
+  "native_vba_compile": false,
+  "native_solidworks_run": false
+}
