@@ -1,9 +1,0 @@
-{
-  "syntax": "PASS",
-  "behavior": "PASS",
-  "cases": [
-    "ordered paths / Unicode / special characters / atomic publication / repeated-click guard",
-    "window close publishes cancellation",
-    "folder addition excludes main drawing, duplicate paths, lock files and other extensions"
-  ]
-}

@@ -1,0 +1,11 @@
+{
+  "parser": "ANTLR 4.13.2 / grammars-v4 VBA 7.1",
+  "syntax_errors": [],
+  "module_sha256": "3dd04db7d2042d1328fa9b5f2bb1fba1677210bbbf6727fb62cbe465403ad374",
+  "verification_dependency_sha256": {
+    "vbaLexer.g4": "a755891014be132ad5f68319437137a56147eb8c1a8de975779e2284cefbeaf2",
+    "vbaParser.g4": "d5e82947e030f12257c926e26e99fd63595230b309b791c5d5ca6eba20ffcaa3",
+    "antlr.jar": "eae2dfa119a64327444672aff63e9ec35a20180dc5b8090b7a6ab85125df4d76"
+  },
+  "native_vba_compile": false
+}

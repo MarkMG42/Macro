@@ -1,0 +1,10 @@
+{
+  "bas_txt_equivalent": true,
+  "procedures": 51,
+  "max_continuations": 6,
+  "excluded_script_process_patterns": true,
+  "native_vba_compile": false,
+  "native_windows_ui_run": false,
+  "native_solidworks_run": false,
+  "antivirus_scan_performed": false
+}
