@@ -1,0 +1,14 @@
+{
+  "button_event_pairs": [
+    "btnUp",
+    "btnDown",
+    "btnRemove",
+    "btnAdd",
+    "btnFolder",
+    "btnOK",
+    "btnCancel"
+  ],
+  "form_name": "frmDrawingOrder",
+  "manually_created_empty_form_required": true,
+  "native_windows_test": false
+}

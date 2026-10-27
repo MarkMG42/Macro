@@ -1,0 +1,18 @@
+{
+  "parser": "ANTLR 4.13.2 / grammars-v4 VBA 7.1",
+  "modules": [
+    {
+      "file": "MergeDrawingsV16_11.bas",
+      "entry": "startRule",
+      "errors": [],
+      "sha256": "18c34689390d23b6a8afdfadb1b0fedce88c1138baf82035b99113fd1cfc04f0"
+    },
+    {
+      "file": "FORM_CODE.txt",
+      "entry": "classModuleBody",
+      "errors": [],
+      "sha256": "7ab7610977eddbde39c3ed035c22cb530372859903f742f2c83d8f040b3188fc"
+    }
+  ],
+  "native_vba_compile": false
+}
