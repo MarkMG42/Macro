@@ -1,0 +1,14 @@
+{
+  "changed_existing_procedures": [
+    "CaptureDrawing",
+    "MappedPropertyView",
+    "VerifyDrawing"
+  ],
+  "new_procedures": [
+    "EffectivePropertyView"
+  ],
+  "form_unchanged": true,
+  "ordering_module_unchanged": true,
+  "pdf_helpers_unchanged": true,
+  "native_execution": false
+}

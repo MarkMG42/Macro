@@ -1,0 +1,18 @@
+{
+  "vendor": "SolidWorks.Interop.sldworks/swconst 32.1.0",
+  "methods": {
+    "IModelDocExtension.GetUserPreferenceToggle": [
+      "UserPref",
+      "UserPrefOption"
+    ],
+    "IModelDocExtension.GetUserPreferenceInteger": [
+      "UserPref",
+      "UserPrefOption"
+    ]
+  },
+  "preference_names": [
+    "swDrawingSheetsMatchCustomPropVals",
+    "swDrawingSheetCustomPropSheetNo"
+  ],
+  "native_execution": false
+}
