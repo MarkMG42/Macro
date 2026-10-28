@@ -1,0 +1,11 @@
+{
+  "source": "SolidWorks.Interop.sldworks 32.1.0 metadata",
+  "members": {
+    "IView.Name": "20000e",
+    "IView.GetName2": "20000e",
+    "IView.GetUniqueName": "20000e",
+    "IDrawingComponent.Name": "20000e",
+    "IComponent2.GetSelectByIDString": "20000e"
+  },
+  "native_run": false
+}
