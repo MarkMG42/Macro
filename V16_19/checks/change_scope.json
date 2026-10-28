@@ -1,0 +1,15 @@
+{
+  "compared_against": "V16_18",
+  "unchanged_source_files": [
+    "header.vba",
+    "helpers.vba",
+    "order_dialog.vba",
+    "source_properties.vba"
+  ],
+  "merge_core_only_build_id_changed": true,
+  "form_unchanged": true,
+  "strict_attachment_comparison_retained": true,
+  "attachment_reassignment_absent": true,
+  "expression_restored_on_attachment_mismatch": true,
+  "kind": "static source assertions; not native SOLIDWORKS execution"
+}
