@@ -1,0 +1,6 @@
+{
+  "kind": "Offline address-format checks from uploaded native context reports; not VBA or SOLIDWORKS execution",
+  "source_section_a_reconstructs_exact_existing_expression": true,
+  "destination_two_sections_have_distinct_internal_views_and_leaf_instances": true,
+  "destination_generated_section_assembly_chain_preserved": true
+}

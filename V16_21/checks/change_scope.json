@@ -1,0 +1,13 @@
+{
+  "compared_against": "V16_20",
+  "unchanged_source_files": [
+    "header.vba",
+    "helpers.vba",
+    "order_dialog.vba",
+    "source_properties.vba"
+  ],
+  "merge_core_only_build_id_changed": true,
+  "form_unchanged": true,
+  "strict_note_verification_retained": true,
+  "native_run": false
+}
