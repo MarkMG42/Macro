@@ -1,0 +1,10 @@
+{
+  "compared_against": "V16_21",
+  "linked_notes_form_view_move_code_unchanged": true,
+  "backup_before_admitting_main_write_path": true,
+  "no_failure_handler_Save3": true,
+  "result_path_is_selected_main": true,
+  "original_unsaved_and_readonly_checks_retained": true,
+  "native_solidworks_run": false,
+  "kind": "Static source assertions"
+}

@@ -1,0 +1,6 @@
+{
+  "parser": "ANTLR 4.13.2 / grammars-v4 VBA 7.1",
+  "errors": [],
+  "module_sha256": "4a420e4b99d9f9f3a95313ea0c71c8c16940f36812cfeac35ee2d17e19c87ca2",
+  "native_vba_compile": false
+}
