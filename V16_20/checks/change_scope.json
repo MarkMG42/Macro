@@ -1,0 +1,13 @@
+{
+  "compared_against": "V16_19",
+  "unchanged_source_files": [
+    "header.vba",
+    "helpers.vba",
+    "order_dialog.vba",
+    "source_properties.vba"
+  ],
+  "merge_core_only_build_id_changed": true,
+  "form_unchanged": true,
+  "scope": "single attachment and single $COMP; exact model/configuration/instance match in native drawing component tree",
+  "native_solidworks_run": false
+}
