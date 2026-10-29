@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R15_GUARDS_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R16_FIRST_LEFT_20261029"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -160,7 +160,7 @@ Public Sub start()
     width = CDbl(props(5))
     height = CDbl(props(6))
     If width <= 2# * SIDE_MARGIN Or height <= BOTTOM_MARGIN Then Fail "Неверные размеры листа."
-    MarkStage "Начало компоновки в правом верхнем углу листа"
+    MarkStage "Начало компоновки: первый вид слева, остальные справа"
     cursorY = height - SIDE_MARGIN
     If MsgBox(BUILD_ID & vbCrLf & "Проверить позиций: " & CStr(bodies.Count) & _
               ". Масштаб 1:" & CStr(1# / DETAIL_SCALE) & vbCrLf & _
@@ -307,7 +307,7 @@ Private Function ProcessBody(ByVal source As SldWorks.View, ByVal config As Stri
     Set face = FindVisibleHoleFace(view, holes, area)
     If face Is Nothing Then Fail "После окончательного перестроения отверстие не подтверждено."
     MarkStage "Размещение по фактическим габаритам"
-    PlaceDetail view, cursorY, sheetWidth
+    PlaceDetail view, cursorY, sheetWidth, (beforeCount = 0)
     MarkStage "Отображение невидимых линий"
     If view.SetDisplayMode4(False, swHIDDEN_GREYED, False, False, True) = False Then Fail "Не удалось включить невидимые линии."
     madeBodyNames.Add currentBody
@@ -1081,9 +1081,9 @@ Private Function ReadPosition(ByVal view As SldWorks.View) As Variant
     ReadPosition = values
 End Function
 
-Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, ByVal sheetWidth As Double)
+Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, ByVal sheetWidth As Double, ByVal placeLeft As Boolean)
     Dim outline As Variant, position As Variant, width As Double, height As Double
-    Dim angle As Double, result As Boolean
+    Dim angle As Double, result As Boolean, targetX As Double
     MarkStage "Габариты и размещение вида"
     outline = ReadOutline(view)
     width = outline(2) - outline(0)
@@ -1107,36 +1107,49 @@ Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, By
         WriteLog "Вид сохраняется в рабочей области за полями листа; требуется компоновка перед печатью."
     End If
     position = ReadPosition(view)
-    position(0) = position(0) + sheetWidth - SIDE_MARGIN - outline(2)
+    If placeLeft Then
+        targetX = SIDE_MARGIN + BALLOON_LEFT_OFFSET
+        position(0) = position(0) + targetX - outline(0)
+    Else
+        targetX = sheetWidth - SIDE_MARGIN
+        position(0) = position(0) + targetX - outline(2)
+    End If
     position(1) = position(1) + cursorY - outline(3)
     view.Position = position
     drawingModel.EditRebuild3
     outline = ReadOutline(view)
-    If Abs(outline(2) - (sheetWidth - SIDE_MARGIN)) > 0.0001 Or Abs(outline(3) - cursorY) > 0.0001 Then Fail "SOLIDWORKS не применил положение вида."
-    cursorY = outline(1) - GAP
+    If Abs(outline(3) - cursorY) > 0.0001 Then Fail "SOLIDWORKS не применил верхнее положение вида."
+    If placeLeft Then
+        If Abs(outline(0) - targetX) > 0.0001 Then Fail "SOLIDWORKS не применил левое положение первого вида."
+    Else
+        If Abs(outline(2) - targetX) > 0.0001 Then Fail "SOLIDWORKS не применил правое положение вида."
+        cursorY = outline(1) - GAP
+    End If
 End Sub
 
 Private Sub DimensionAndArrange(ByVal sheetWidth As Double, ByVal sheetHeight As Double)
     Dim view As SldWorks.View, i As Long, cursorY As Double, box As Variant
-    Dim errorText As String, remainder As Long
+    Dim errorText As String, remainder As Long, targetX As Double, placeLeft As Boolean
     On Error GoTo Failed
     MarkStage "Размеры VBA: обработка созданных видов"
     cursorY = sheetHeight - SIDE_MARGIN
     ' Complete ALL body views first; then select and dimension one view at a time.
     For i = 1 To madeViews.Count
         Set view = madeViews(i)
+        placeLeft = (i = 1)
+        If placeLeft Then targetX = SIDE_MARGIN + BALLOON_LEFT_OFFSET Else targetX = sheetWidth - SIDE_MARGIN
         currentView = view.GetName2
         currentBody = "DIMENSIONS " & CStr(i)
         currentDirection = 0
-        If TryDimensionView(view, box, sheetWidth - SIDE_MARGIN, cursorY) Then
+        If TryDimensionView(view, box, targetX, cursorY, placeLeft) Then
             dimensionsCompleted = dimensionsCompleted + 1
             ' The strict engine already placed/rebuilt/revalidated this view. Do not move it again.
             If OutlineInLayout(box, sheetWidth, sheetHeight) = False Then dimensionsOutside = dimensionsOutside + 1
-            cursorY = box(1) - GAP
+            If placeLeft = False Then cursorY = box(1) - GAP
         Else
             dimensionsFailed = dimensionsFailed + 1
             MarkStage "Компоновка вида без подтверждённых размеров"
-            PlaceDimensionBox view, box, cursorY, sheetWidth, sheetHeight
+            PlaceDimensionBox view, box, cursorY, sheetWidth, sheetHeight, placeLeft
         End If
     Next i
     Exit Sub
@@ -1149,12 +1162,12 @@ Failed:
 End Sub
 
 Private Function TryDimensionView(ByVal view As SldWorks.View, ByRef box As Variant, _
-                                  ByVal targetRight As Double, ByVal targetTop As Double) As Boolean
+                                  ByVal targetX As Double, ByVal targetTop As Double, ByVal placeLeft As Boolean) As Boolean
     Dim result As Variant, errorText As String
     On Error GoTo Failed
     MarkStage "Размеры VBA: выбор одного созданного вида"
     SelectDrawingView view
-    result = NativeDimensionView(view, targetRight, targetTop)
+    result = NativeDimensionView(view, targetX, targetTop, placeLeft)
     If HasItems(result) = False Then Fail "Расчёт размеров не вернул результат."
     If LBound(result) <> 0 Or UBound(result) <> 4 Then Fail "Неизвестный формат результата размеров."
     If CDbl(result(0)) <= 0# Then Fail "Не подтверждены созданные размеры."
@@ -1173,12 +1186,16 @@ Failed:
 End Function
 
 Private Sub PlaceDimensionBox(ByVal view As SldWorks.View, ByVal box As Variant, ByRef cursorY As Double, _
-                              ByVal sheetWidth As Double, ByVal sheetHeight As Double)
+                              ByVal sheetWidth As Double, ByVal sheetHeight As Double, ByVal placeLeft As Boolean)
     Dim position As Variant, actual As Variant, dx As Double, dy As Double, moved As Variant
     If FitsLayout(box(2) - box(0), box(3) - box(1), cursorY, sheetWidth) = False Then
         If ALLOW_WORKSPACE_LAYOUT = False Then Fail "Не хватает места для вида с размерами."
     End If
-    dx = sheetWidth - SIDE_MARGIN - box(2)
+    If placeLeft Then
+        dx = SIDE_MARGIN + BALLOON_LEFT_OFFSET - box(0)
+    Else
+        dx = sheetWidth - SIDE_MARGIN - box(2)
+    End If
     dy = cursorY - box(3)
     position = ReadPosition(view)
     position(0) = position(0) + dx
@@ -1191,7 +1208,7 @@ Private Sub PlaceDimensionBox(ByVal view As SldWorks.View, ByVal box As Variant,
     If Abs(actual(0) - position(0)) > 0.0001 Or Abs(actual(1) - position(1)) > 0.0001 Then Fail "Не применена компоновка вида с размерами."
     moved = Array(box(0) + dx, box(1) + dy, box(2) + dx, box(3) + dy)
     If OutlineInLayout(moved, sheetWidth, sheetHeight) = False Then dimensionsOutside = dimensionsOutside + 1
-    cursorY = moved(1) - GAP
+    If placeLeft = False Then cursorY = moved(1) - GAP
 End Sub
 
 Private Function HolesNeedFlip(ByVal meanX As Double, ByVal left As Double, ByVal right As Double, ByVal tolerance As Double) As Boolean
@@ -1619,7 +1636,8 @@ End Sub
 
 ' BEGIN NATIVE DIMENSIONS ENGINE
 ' Everything executes inside the existing SOLIDWORKS VBA host. No external runtime.
-Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRight As Double, ByVal targetTop As Double) As Variant
+Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX As Double, ByVal targetTop As Double, _
+                                     ByVal placeLeft As Boolean) As Variant
     Dim created As Collection, expected As Collection, lines() As NDLine, holes() As NDHole
     Dim lineCount As Long, holeCount As Long, bounds As NDBounds, viewScale As Double
     Dim selectedHoles As Collection, xPositions As Collection, yPositions As Collection, groups As Collection
@@ -1639,7 +1657,7 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
     viewScale = view.ScaleDecimal
     If NdFinite(viewScale) = False Then Fail "Неконечный масштаб вида."
     If viewScale <= 0# Then Fail "Неположительный масштаб вида."
-    If NdFinite(targetRight) = False Or NdFinite(targetTop) = False Then Fail "Неконечные координаты размещения."
+    If NdFinite(targetX) = False Or NdFinite(targetTop) = False Then Fail "Неконечные координаты размещения."
     originalPosition = ReadPosition(view)
     projectedBefore = view.ProjectedDimensions
     modeKnown = True
@@ -1702,7 +1720,7 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
         End If
     End If
     box = NdDimensionEnvelope(created, bounds)
-    dx = targetRight - box(3)
+    If placeLeft Then dx = targetX - box(1) Else dx = targetX - box(3)
     dy = targetTop - box(4)
     position = ReadPosition(view)
     position(0) = position(0) + dx
@@ -1717,7 +1735,12 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
     If view.ProjectedDimensions = False Then Fail "После размещения сброшен проекционный режим."
     NdValidateAll created, expected, viewScale
     box = NdDimensionEnvelope(created, bounds)
-    If Abs(box(3) - targetRight) > 0.0001 Or Abs(box(4) - targetTop) > 0.0001 Then Fail "Не подтверждены границы размещения вида с размерами."
+    If placeLeft Then
+        If Abs(box(1) - targetX) > 0.0001 Then Fail "Не подтверждена левая граница первого вида с размерами."
+    Else
+        If Abs(box(3) - targetX) > 0.0001 Then Fail "Не подтверждена правая граница вида с размерами."
+    End If
+    If Abs(box(4) - targetTop) > 0.0001 Then Fail "Не подтверждена верхняя граница вида с размерами."
     drawingModel.ClearSelection2 True
     NativeDimensionView = box
     Exit Function

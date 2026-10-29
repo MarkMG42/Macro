@@ -1,5 +1,6 @@
 ' Everything executes inside the existing SOLIDWORKS VBA host. No external runtime.
-Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRight As Double, ByVal targetTop As Double) As Variant
+Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX As Double, ByVal targetTop As Double, _
+                                     ByVal placeLeft As Boolean) As Variant
     Dim created As Collection, expected As Collection, lines() As NDLine, holes() As NDHole
     Dim lineCount As Long, holeCount As Long, bounds As NDBounds, viewScale As Double
     Dim selectedHoles As Collection, xPositions As Collection, yPositions As Collection, groups As Collection
@@ -19,7 +20,7 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
     viewScale = view.ScaleDecimal
     If NdFinite(viewScale) = False Then Fail "Неконечный масштаб вида."
     If viewScale <= 0# Then Fail "Неположительный масштаб вида."
-    If NdFinite(targetRight) = False Or NdFinite(targetTop) = False Then Fail "Неконечные координаты размещения."
+    If NdFinite(targetX) = False Or NdFinite(targetTop) = False Then Fail "Неконечные координаты размещения."
     originalPosition = ReadPosition(view)
     projectedBefore = view.ProjectedDimensions
     modeKnown = True
@@ -82,7 +83,7 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
         End If
     End If
     box = NdDimensionEnvelope(created, bounds)
-    dx = targetRight - box(3)
+    If placeLeft Then dx = targetX - box(1) Else dx = targetX - box(3)
     dy = targetTop - box(4)
     position = ReadPosition(view)
     position(0) = position(0) + dx
@@ -97,7 +98,12 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
     If view.ProjectedDimensions = False Then Fail "После размещения сброшен проекционный режим."
     NdValidateAll created, expected, viewScale
     box = NdDimensionEnvelope(created, bounds)
-    If Abs(box(3) - targetRight) > 0.0001 Or Abs(box(4) - targetTop) > 0.0001 Then Fail "Не подтверждены границы размещения вида с размерами."
+    If placeLeft Then
+        If Abs(box(1) - targetX) > 0.0001 Then Fail "Не подтверждена левая граница первого вида с размерами."
+    Else
+        If Abs(box(3) - targetX) > 0.0001 Then Fail "Не подтверждена правая граница вида с размерами."
+    End If
+    If Abs(box(4) - targetTop) > 0.0001 Then Fail "Не подтверждена верхняя граница вида с размерами."
     drawingModel.ClearSelection2 True
     NativeDimensionView = box
     Exit Function

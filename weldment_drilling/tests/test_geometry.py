@@ -84,13 +84,20 @@ class CoreTests(unittest.TestCase):
         for unknown,remaining,completed,expected in [(False,0,0,True),(False,3,3,True),(False,4,3,False),(True,3,3,False),(True,0,0,False),(False,2,3,False)]:
             self.assertEqual(assignment('CanContinueAfterFailure','CanContinueAfterFailure',dict(unknownPaste=unknown,remaining=remaining,completed=completed)),expected)
 
-    def test_top_right_layout_uses_outline_not_origin(self):
+    def test_first_left_and_other_views_right_use_outline_not_origin(self):
         outline,position = (-.06,-.025,.14,.075),[.2,.3]
-        env = dict(position=position,outline=outline,SIDE_MARGIN=.02,cursorY=.4,sheetWidth=.42)
-        x,y = assignment('PlaceDetail','position(0)',env),assignment('PlaceDetail','position(1)',env)
-        self.assertAlmostEqual(outline[2]+x-position[0],.4)
-        self.assertAlmostEqual(outline[3]+y-position[1],.4)
-        self.assertAlmostEqual(assignment('PlaceDetail','cursorY',dict(outline=outline,GAP=.01)),-.035)
+        code=body('PlaceDetail')
+        moves=re.findall(r'^\s*position\(0\) = (.+)$',code,re.M)
+        self.assertEqual(len(moves),2)
+        env = dict(position=position,outline=outline,targetX=.04)
+        left=expression(moves[0],env)
+        self.assertAlmostEqual(outline[0]+left-position[0],.04)
+        env['targetX']=.4
+        right=expression(moves[1],env)
+        self.assertAlmostEqual(outline[2]+right-position[0],.4)
+        self.assertIn('If placeLeft Then',code)
+        self.assertIn('targetX = SIDE_MARGIN + BALLOON_LEFT_OFFSET',code)
+        self.assertIn('If placeLeft = False Then cursorY',body('DimensionAndArrange'))
 
     def test_no_model_window_or_cross_context_dependency(self):
         code = '\n'.join(line.split("'",1)[0] for line in SOURCE.splitlines())
@@ -178,23 +185,34 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('ViewIndex(remaining, view)',deleted)
         self.assertNotIn('view.Get',deleted)
 
-    def test_dimension_envelope_reflow_stacks_from_top_right(self):
+    def test_dimension_envelope_reflow_has_left_and_right_anchors(self):
         box=[-.04,-.07,.18,.09]
         env=dict(box=box,sheetWidth=.42,SIDE_MARGIN=.02,cursorY=.277)
-        dx=assignment('PlaceDimensionBox','dx',env)
+        code=body('PlaceDimensionBox')
+        moves=re.findall(r'^\s*dx = (.+)$',code,re.M)
+        self.assertEqual(len(moves),2)
+        left=expression(moves[0],dict(env,BALLOON_LEFT_OFFSET=.02))
+        self.assertAlmostEqual(box[0]+left,.04)
+        dx=expression(moves[1],env)
         dy=assignment('PlaceDimensionBox','dy',env)
         self.assertAlmostEqual(box[2]+dx,.4)
         self.assertAlmostEqual(box[3]+dy,.277)
         moved=[box[0]+dx,box[1]+dy,box[2]+dx,box[3]+dy]
-        next_y=assignment('PlaceDimensionBox','cursorY',dict(moved=moved,GAP=.015))
+        next_y=expression(re.search(r'If placeLeft = False Then cursorY = (.+)',code)[1],dict(moved=moved,GAP=.015))
         self.assertAlmostEqual((box[1]+dy)-next_y,.015)
 
     def test_dimension_pass_uses_native_vba_on_each_created_view(self):
         code=body('DimensionAndArrange')
         self.assertIn('For i = 1 To madeViews.Count',code)
+        self.assertIn('placeLeft = (i = 1)',code)
+        self.assertIn('If placeLeft = False Then cursorY = box(1) - GAP',code)
+        self.assertIn('If placeLeft = False Then cursorY = moved(1) - GAP',body('PlaceDimensionBox'))
         attempt=body('TryDimensionView')
-        self.assertLess(attempt.index('SelectDrawingView view'),attempt.index('NativeDimensionView(view, targetRight, targetTop)'))
+        self.assertLess(attempt.index('SelectDrawingView view'),attempt.index('NativeDimensionView(view, targetX, targetTop, placeLeft)'))
         self.assertIn('CDbl(result(0)) <= 0#',attempt)
+        native=body('NativeDimensionView')
+        self.assertIn('If placeLeft Then dx = targetX - box(1) Else dx = targetX - box(3)',native)
+        self.assertIn('Abs(box(1) - targetX)',native)
         self.assertNotIn('CleanupSince',code+attempt)
         self.assertNotIn('TryDeleteView',code+attempt)
         self.assertLess(SOURCE.index('If ProcessBody(source, config, i, cursorY, width)'),SOURCE.index('DimensionAndArrange width, height'))
