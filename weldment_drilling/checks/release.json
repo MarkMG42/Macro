@@ -1,8 +1,8 @@
 {
-  "source_sha256": "35fee0e3b9599491d5c30be5a0436710ec23ff1ec9be353c37f304c30cd25183",
-  "import_module_sha256": "f74630e784eddd253c6c15658f410b8927ca9c06b5336f578d98853ef88a487a",
+  "source_sha256": "8c7bd94aae36b64029e6d4a693ed6464d8e8fe35ba48f8065c3b4996614413e3",
+  "import_module_sha256": "44975e66c02731bf5ad89f8bb01f3e62176318ab73e92e3d591a1578de96e5d0",
   "original_module_sha256": "1fb2d8e754c5db9e1721d3248c719dc37133fdb988c834bff2c56c77a49bf3b2",
-  "build_id": "DRILL_COPY_VIEW_R3_LAYOUT_20261029",
+  "build_id": "DRILL_COPY_VIEW_R4_HOLES_LEFT_20261029",
   "workflow": "Copy source drawing view, filter body, inspect six directions",
   "native_vba_compile": false,
   "native_solidworks_run": false,

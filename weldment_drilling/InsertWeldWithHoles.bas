@@ -2,7 +2,9 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R3_LAYOUT_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R4_HOLES_LEFT_20261029"
+Private Const HOLES_LEFT As Boolean = True
+Private Const HOLE_SIDE_TOLERANCE As Double = 0.0001
 Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
 Private Const DETAIL_SCALE As Double = 0.2
 Private Const GAP As Double = 0.015
@@ -21,6 +23,7 @@ Private madeViews As Collection
 Private madeTable As SldWorks.WeldmentCutListAnnotation
 Private visited As Object
 Private skipped As Collection
+Private orientationWarnings As Collection
 Private currentStage As String
 Private currentBody As String
 Private currentView As String
@@ -32,10 +35,12 @@ Public Sub start()
     Dim source As SldWorks.View, sheet As SldWorks.Sheet
     Dim config As String, message As String, cleanup As String, errorText As String
     Dim bodies As Collection, cursorY As Double, width As Double, height As Double
+    Dim initialViews As Object
     Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle, outside As Long
     On Error GoTo Failed
     Set madeViews = New Collection
     Set skipped = New Collection
+    Set orientationWarnings = New Collection
     Set madeTable = Nothing
     Set partModel = Nothing
     Set drawingModel = Nothing
@@ -83,6 +88,8 @@ Public Sub start()
     End If
     MarkStage "Проверка ранее созданных видов"
     CheckPreviousRun sheet
+    MarkStage "Предварительная проверка идентификаторов видов"
+    Set initialViews = ViewSnapshot()
     props = sheet.GetProperties
     If HasItems(props) = False Then Fail "Лист не вернул размеры."
     If UBound(props) < 6 Then Fail "Неполные свойства листа."
@@ -124,6 +131,13 @@ Public Sub start()
         icon = vbExclamation
         For i = 1 To skipped.Count
             If i <= 3 Then message = message & vbCrLf & CStr(skipped(i))
+        Next i
+    End If
+    If orientationWarnings.Count > 0 Then
+        icon = vbExclamation
+        message = message & vbCrLf & "Не удалось ориентировать отверстия влево: " & CStr(orientationWarnings.Count) & ". Эти виды сохранены без разворота; проверьте вручную."
+        For i = 1 To orientationWarnings.Count
+            If i <= 3 Then message = message & vbCrLf & CStr(orientationWarnings(i))
         Next i
     End If
     If completed = 0 Then
@@ -412,10 +426,18 @@ Private Function ResolvePartBody(ByVal name As String, ByVal config As String) A
     If count <> 1 Then Fail "Неоднозначное тело модели: [" & name & "]; совпадений=" & CStr(count)
 End Function
 
+Private Function ViewKey(ByVal view As SldWorks.View) As String
+    If view Is Nothing Then Fail "Нет вида для чтения идентификатора."
+    ViewKey = view.GetUniqueName
+    If Len(ViewKey) = 0 Then Fail "Пустой внутренний идентификатор вида: [" & view.GetName2 & "]."
+End Function
+
 Private Function ViewSnapshot() As Object
     Dim result As Object, sheet As SldWorks.Sheet, views As Variant, view As SldWorks.View, i As Long
+    Dim key As String, previous As SldWorks.View
     Set result = CreateObject("Scripting.Dictionary")
-    result.CompareMode = vbTextCompare
+    ' Display names are not identity. Never merge case-distinct internal names.
+    result.CompareMode = vbBinaryCompare
     Set sheet = drawing.GetCurrentSheet
     If sheet Is Nothing Then Fail "Нет текущего листа."
     If StrComp(sheet.GetName, sourceSheetName, vbBinaryCompare) <> 0 Then Fail "Активный лист изменился."
@@ -424,7 +446,21 @@ Private Function ViewSnapshot() As Object
         For i = LBound(views) To UBound(views)
             Set view = views(i)
             If view Is Nothing Then Fail "В списке видов пустая ссылка."
-            If view.Type <> swDrawingSheet Then result.Add view.GetName2, view
+            If view.Type <> swDrawingSheet Then
+                key = ViewKey(view)
+                WriteLog "Снимок: индекс=" & CStr(i) & "; тип=" & CStr(view.Type) & "; имя=[" & view.GetName2 & "]; ID=[" & key & "]"
+                If result.Exists(key) Then
+                    Set previous = result.Item(key)
+                    If previous Is view Then
+                        WriteLog "Повторная ссылка на тот же вид пропущена: [" & key & "]"
+                    Else
+                        Fail "Разные ссылки видов имеют один внутренний ID: [" & key & "]. Вставка остановлена до потери учёта."
+                    End If
+                Else
+                    result.Add key, Empty
+                    Set result.Item(key) = view
+                End If
+            End If
         Next i
     End If
     Set ViewSnapshot = result
@@ -478,7 +514,7 @@ Private Sub SelectDrawingView(ByVal view As SldWorks.View)
     If manager.GetSelectedObjectType3(1, -1) <> swSelDRAWINGVIEWS Then Fail "Выбран объект другого типа."
     Set selected = manager.GetSelectedObject6(1, -1)
     If selected Is Nothing Then Fail "Выбор вида вернул Nothing."
-    If StrComp(selected.GetName2, view.GetName2, vbBinaryCompare) <> 0 Then Fail "Выбран другой вид."
+    If StrComp(ViewKey(selected), ViewKey(view), vbBinaryCompare) <> 0 Then Fail "Выбран другой вид."
 End Sub
 
 Private Function CopySourceView(ByVal source As SldWorks.View) As SldWorks.View
@@ -490,7 +526,7 @@ Private Function CopySourceView(ByVal source As SldWorks.View) As SldWorks.View
     MarkStage "Снимок видов перед копированием"
     EnsureSourceSheetActive
     Set before = ViewSnapshot()
-    If before.Exists(source.GetName2) = False Then Fail "Исходного вида нет на текущем листе."
+    If before.Exists(ViewKey(source)) = False Then Fail "Исходного вида нет на текущем листе."
     MarkStage "Копирование исходного вида"
     SelectDrawingView source
     drawingModel.EditCopy
@@ -521,6 +557,12 @@ RegisterPasted:
     If SameDrawingDocument(app.ActiveDoc) = False Then changedSheet = True
     EnsureSourceSheetActive
     Set after = ViewSnapshot()
+    For Each key In before.Keys
+        If after.Exists(CStr(key)) = False Then
+            pendingPaste = True
+            Fail "После вставки исчез исходный ID вида: [" & CStr(key) & "]. Неизвестные объекты не удаляются автоматически."
+        End If
+    Next key
     For Each key In after.Keys
         If before.Exists(CStr(key)) = False Then
             Set candidate = after(CStr(key))
@@ -774,8 +816,7 @@ Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, By
     width = outline(2) - outline(0)
     height = outline(3) - outline(1)
     If height > width Then
-        drawingModel.ClearSelection2 True
-        If drawingModel.Extension.SelectByID2(view.GetName2, "DRAWINGVIEW", 0#, 0#, 0#, False, 0, Nothing, 0) = False Then Fail "Не удалось выбрать вид для поворота."
+        SelectDrawingView view
         result = drawing.DrawingViewRotate(view.Angle + 1.5707963267949)
         If result = False Then Fail "Не удалось повернуть вид горизонтально."
         drawingModel.EditRebuild3
@@ -783,6 +824,10 @@ Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, By
         width = outline(2) - outline(0)
         height = outline(3) - outline(1)
     End If
+    If HOLES_LEFT Then OrientHolesLeft view
+    outline = ReadOutline(view)
+    width = outline(2) - outline(0)
+    height = outline(3) - outline(1)
     If width <= EPS Or height <= EPS Then Fail "Пустые габариты вида."
     If FitsLayout(width, height, cursorY, sheetWidth) = False Then
         If ALLOW_WORKSPACE_LAYOUT = False Then Fail "Не хватает места в полях листа. Включите ALLOW_WORKSPACE_LAYOUT или освободите лист."
@@ -796,6 +841,90 @@ Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, By
     outline = ReadOutline(view)
     If Abs(outline(0) - SIDE_MARGIN) > 0.0001 Or Abs(outline(3) - cursorY) > 0.0001 Then Fail "SOLIDWORKS не применил положение вида."
     cursorY = outline(1) - GAP
+End Sub
+
+Private Function HolesNeedFlip(ByVal meanX As Double, ByVal left As Double, ByVal right As Double, ByVal tolerance As Double) As Boolean
+    HolesNeedFlip = meanX > (left + right) / 2# + tolerance
+End Function
+
+Private Function HoleMeanX(ByVal view As SldWorks.View, ByRef count As Long) As Double
+    Dim face As SldWorks.Face2, holeLoop As SldWorks.Loop2, edges As Variant
+    Dim edge As SldWorks.Edge, curve As SldWorks.Curve, circleData As Variant, coords As Variant
+    Dim utility As SldWorks.MathUtility, point As SldWorks.MathPoint, projected As SldWorks.MathPoint
+    Dim transform As SldWorks.MathTransform, xyz(2) As Double, sumX As Double
+    Dim holes As Long, area As Double
+    count = 0
+    Set face = FindVisibleHoleFace(view, holes, area)
+    If face Is Nothing Then Fail "Не найдена обращённая к нам грань с отверстиями."
+    If view.ScaleDecimal <= EPS Then Fail "Недопустимый масштаб проекции центров."
+    Set transform = view.ModelToViewTransform
+    If transform Is Nothing Then Fail "Нет преобразования модели в вид."
+    Set utility = app.GetMathUtility
+    If utility Is Nothing Then Fail "Нет MathUtility для проекции центров."
+    Set holeLoop = face.GetFirstLoop
+    Do While Not holeLoop Is Nothing
+        If IsRoundOpening(holeLoop) Then
+            edges = holeLoop.GetEdges
+            If HasItems(edges) = False Then Fail "Нет рёбер круглого контура."
+            Set edge = edges(LBound(edges))
+            If edge Is Nothing Then Fail "Пустое ребро круглого контура."
+            Set curve = edge.GetCurve
+            If curve Is Nothing Then Fail "Нет кривой круглого контура."
+            circleData = curve.CircleParams
+            If HasItems(circleData) = False Then Fail "Нет центра окружности."
+            If LBound(circleData) <> 0 Or UBound(circleData) < 6 Then Fail "Неполные параметры окружности."
+            xyz(0) = circleData(0): xyz(1) = circleData(1): xyz(2) = circleData(2)
+            Set point = utility.CreatePoint(xyz)
+            If point Is Nothing Then Fail "Не создана точка центра."
+            Set projected = point.MultiplyTransform(transform)
+            If projected Is Nothing Then Fail "Не спроецирован центр отверстия."
+            coords = projected.ArrayData
+            If HasItems(coords) = False Then Fail "Нет координат проекции центра."
+            If LBound(coords) <> 0 Or UBound(coords) < 2 Then Fail "Неполные координаты центра."
+            ' One sample per loop, including a full circleData split into several arcs.
+            ' ModelToViewTransform already includes the drawing view scale.
+            sumX = sumX + CDbl(coords(0))
+            count = count + 1
+        End If
+        Set holeLoop = holeLoop.GetNext
+    Loop
+    If count = 0 Or count <> holes Then Fail "Изменилось число отверстий при проекции центров."
+    HoleMeanX = sumX / count
+End Function
+
+Private Sub OrientHolesLeft(ByVal view As SldWorks.View)
+    Dim originalAngle As Double, attempted As Boolean, outline As Variant, meanX As Double
+    Dim count As Long, afterCount As Long, errorText As String
+    On Error GoTo Failed
+    MarkStage "Ориентация группы отверстий влево"
+    originalAngle = view.Angle
+    outline = ReadOutline(view)
+    meanX = HoleMeanX(view, count)
+    WriteLog "Центр группы X=" & CStr(meanX) & "; середина вида=" & CStr((outline(0) + outline(2)) / 2#)
+    If HolesNeedFlip(meanX, outline(0), outline(2), HOLE_SIDE_TOLERANCE) = False Then Exit Sub
+    SelectDrawingView view
+    attempted = True
+    If drawing.DrawingViewRotate(originalAngle + 3.14159265358979) = False Then Fail "Не выполнен разворот на 180 градусов."
+    drawingModel.EditRebuild3
+    outline = ReadOutline(view)
+    meanX = HoleMeanX(view, afterCount)
+    If afterCount <> count Then Fail "После разворота изменилась выбранная группа отверстий."
+    If HolesNeedFlip(meanX, outline(0), outline(2), HOLE_SIDE_TOLERANCE) Then Fail "После разворота отверстия остались справа."
+    WriteLog "Разворот отверстиями влево подтверждён по центрам."
+    Exit Sub
+Failed:
+    errorText = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog errorText
+    On Error GoTo 0
+    ' This is cosmetic: retain a valid inserted view if orientation is unavailable.
+    ' A failed restore is NOT cosmetic and propagates to the normal body cleanup.
+    If attempted Then
+        SelectDrawingView view
+        If drawing.DrawingViewRotate(originalAngle) = False Then Fail "Не восстановлен угол после неудачного разворота. " & errorText
+        drawingModel.EditRebuild3
+        If Abs(Cos(view.Angle - originalAngle) - 1#) > 0.000001 Then Fail "Не подтверждено восстановление угла. " & errorText
+    End If
+    orientationWarnings.Add "Тело=[" & currentBody & "]: " & errorText
 End Sub
 
 Private Function FitsLayout(ByVal width As Double, ByVal height As Double, ByVal top As Double, ByVal sheetWidth As Double) As Boolean
@@ -879,10 +1008,9 @@ Private Function TryDeleteView(ByVal view As SldWorks.View) As Boolean
     Dim name As String, remaining As Object
     On Error GoTo Failed
     If view Is Nothing Then Exit Function
-    name = view.GetName2
+    name = ViewKey(view)
     EnsureSourceSheetActive
-    drawingModel.ClearSelection2 True
-    If drawingModel.Extension.SelectByID2(view.GetName2, "DRAWINGVIEW", 0#, 0#, 0#, False, 0, Nothing, 0) = False Then Exit Function
+    SelectDrawingView view
     If drawingModel.Extension.DeleteSelection2(swDelete_Absorbed) = False Then Exit Function
     Set remaining = ViewSnapshot()
     TryDeleteView = (remaining.Exists(name) = False)

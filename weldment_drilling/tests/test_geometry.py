@@ -94,8 +94,62 @@ class CoreTests(unittest.TestCase):
 
     def test_no_model_window_or_cross_context_dependency(self):
         code = '\n'.join(line.split("'",1)[0] for line in SOURCE.splitlines())
-        for forbidden in ['partModel.ActiveView','.NameView','CreateDrawViewFromModelView3','MultiplyTransform','GetCorrespondingEntity']:
+        for forbidden in ['partModel.ActiveView','.NameView','CreateDrawViewFromModelView3','MathVector','GetCorrespondingEntity']:
             self.assertNotIn(forbidden,code)
+
+    def test_hole_group_left_right_symmetric_and_tolerance(self):
+        # Screenshot: 500 mm bar, holes at 30/120; scale 1:5.
+        for centres,expected in [([30,120],False),([380,470],True),([30,470],False),([250],False),([250.2],False),([251],True)]:
+            mean=sum(centres)/len(centres)*.0002
+            self.assertEqual(assignment('HolesNeedFlip','HolesNeedFlip',dict(meanX=mean,left=0.,right=.1,tolerance=.0001)),expected)
+
+    def test_hole_side_invariant_under_translation_and_scale(self):
+        for scale in [.05,.2,1.,2.]:
+            for shift in [-2.,0.,3.]:
+                for fraction,expected in [(.15,False),(.5,False),(.85,True)]:
+                    self.assertEqual(assignment('HolesNeedFlip','HolesNeedFlip',dict(meanX=shift+fraction*.5*scale,left=shift,right=shift+.5*scale,tolerance=.0001)),expected)
+
+    def test_half_turn_reflects_group_and_preserves_spacing(self):
+        # Geometry of an in-plane half turn: x'=left+right-x.
+        left,right=.02,.12
+        original=[left+.076,left+.094]
+        reflected=[left+right-x for x in original]
+        self.assertAlmostEqual(abs(reflected[1]-reflected[0]),abs(original[1]-original[0]))
+        self.assertFalse(assignment('HolesNeedFlip','HolesNeedFlip',dict(meanX=sum(reflected)/2,left=left,right=right,tolerance=.0001)))
+
+    def test_loop_centres_use_point_transform_once_without_extra_scale(self):
+        code=body('HoleMeanX')
+        self.assertIn('If IsRoundOpening(holeLoop) Then',code)
+        self.assertEqual(code.count('count = count + 1'),1)
+        self.assertIn('projected = point.MultiplyTransform(transform)',code)
+        self.assertIn('transform = view.ModelToViewTransform',code)
+        self.assertNotIn('* view.ScaleDecimal',code)
+        self.assertIn('If projected Is Nothing Then',code)
+        place=body('PlaceDetail')
+        self.assertLess(place.index('DrawingViewRotate'),place.index('OrientHolesLeft'))
+        self.assertLess(place.index('OrientHolesLeft'),place.index('view.Position = position'))
+
+    def test_snapshot_uses_internal_binary_keys_with_guarded_duplicate(self):
+        code=body('ViewSnapshot')
+        self.assertIn('result.CompareMode = vbBinaryCompare',code)
+        self.assertIn('key = ViewKey(view)',code)
+        self.assertIn('ViewKey = view.GetUniqueName',body('ViewKey'))
+        self.assertLess(code.index('If result.Exists(key) Then'),code.index('result.Add key, Empty'))
+        self.assertIn('If previous Is view Then',code)
+        # Distinct references with the same key must enter an explicit failure branch.
+        self.assertRegex(code,r'Else\s+Fail [^\n]+\n\s+End If\s+Else\s+result.Add')
+        self.assertNotIn('vbTextCompare',code)
+
+    def test_existing_view_keys_checked_before_registering_or_deleting_delta(self):
+        code=body('CopySourceView')
+        intact=code.index('For Each key In before.Keys')
+        register=code.index('For Each key In after.Keys')
+        self.assertLess(intact,register)
+        self.assertIn('pendingPaste = True',code[intact:register])
+        self.assertIn('Fail ',code[intact:register])
+        self.assertIn('before.Exists(ViewKey(source))',code)
+        self.assertIn('name = ViewKey(view)',body('TryDeleteView'))
+        self.assertIn('StrComp(ViewKey(selected), ViewKey(view), vbBinaryCompare)',body('SelectDrawingView'))
 
     def test_windows_import_encoding(self):
         self.assertEqual((ROOT/'InsertWeldWithHoles.bas').read_text(encoding='cp1251'),SOURCE)
