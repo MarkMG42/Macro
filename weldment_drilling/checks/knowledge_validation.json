@@ -1,0 +1,23 @@
+{
+  "checker": "engineering-knowledge/tools/check_agent_knowledge.py",
+  "exit_code": 1,
+  "global_checker_passed": false,
+  "expected_scoped_snapshot_differences": [
+    "Protected file changed: docs/agent-knowledge/weldment-drawing-investigation.md",
+    "Protected file list differs: weldment_drilling",
+    "Protected file changed: weldment_drilling/Drilling_Reviewed.zip",
+    "Protected file changed: weldment_drilling/InsertWeldWithHoles.bas",
+    "Protected file changed: weldment_drilling/InsertWeldWithHoles.txt",
+    "Protected file changed: weldment_drilling/README_RU.md",
+    "Protected file changed: weldment_drilling/SHA256SUMS.txt",
+    "Protected file changed: weldment_drilling/checks/api.json",
+    "Protected file changed: weldment_drilling/checks/grammar.json",
+    "Protected file changed: weldment_drilling/checks/release.json",
+    "Protected file changed: weldment_drilling/checks/tests.json",
+    "Protected file changed: weldment_drilling/tests/test_geometry.py",
+    "Protected file changed: weldment_drilling/tools/package_release.py"
+  ],
+  "unexpected_findings": [],
+  "reason": "Preservation snapshot was created for repository reorganization. Current user explicitly requests edits to weldment_drilling and its knowledge record; immutable baseline is not rewritten to hide differences.",
+  "native_solidworks_run": false
+}

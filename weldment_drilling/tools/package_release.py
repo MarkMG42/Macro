@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib
 import json
+import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,11 +21,21 @@ def main():
     grammar = json.loads((ROOT / 'checks/grammar.json').read_text())
     assert not grammar['errors'], 'VBA grammar errors'
     assert grammar['source_sha256'] == sha(source), 'Rerun grammar validation for this source'
+    suite = unittest.defaultTestLoader.discover(str(ROOT / 'tests'))
+    result = unittest.TextTestRunner(verbosity=1).run(suite)
+    tests = dict(tests=result.testsRun, failures=len(result.failures), errors=len(result.errors),
+                 skipped=len(result.skipped), source_sha256=sha(source),
+                 tests_sha256=sha(ROOT / 'tests/test_geometry.py'),
+                 native_vba_execution=False, native_solidworks_execution=False,
+                 scope='Pure scalar/policy expressions, encoding and architectural regression; no COM execution')
+    (ROOT / 'checks/tests.json').write_text(json.dumps(tests, indent=2) + '\n')
+    assert result.wasSuccessful() and result.testsRun > 0 and not result.skipped, 'Release tests failed/skipped or empty'
     # Source-only container rebuilding failed in the user's SOLIDWORKS host.
     # Do not accidentally redistribute an unsupported binary in a source release.
     assert not list(ROOT.rglob('*.swp')), 'Do not ship SWP without native load validation'
     report = dict(source_sha256=sha(source), import_module_sha256=sha(module),
                   original_module_sha256=sha(ROOT / 'original/InsertWeldWithHoles.bas'),
+                  build_id='DRILL_COPY_VIEW_R2_20261029', workflow='Copy source drawing view, filter body, inspect six directions',
                   native_vba_compile=False, native_solidworks_run=False,
                   binary_swp_rebuilt=False, binary_swp_withdrawn=True,
                   native_solidworks_load=False, original_swp_sha256=

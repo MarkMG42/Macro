@@ -248,6 +248,48 @@
       "member": "GetBodies2",
       "exists": true,
       "signature": "Object GetBodies2(Int32 BodyType, Boolean VisibleOnly)"
+    },
+    {
+      "interface": "IView",
+      "member": "get_Angle",
+      "exists": true,
+      "signature": "Double get_Angle()"
+    },
+    {
+      "interface": "IView",
+      "member": "set_Angle",
+      "exists": true,
+      "signature": "Void set_Angle(Double)"
+    },
+    {
+      "interface": "IView",
+      "member": "GetAnnotations",
+      "exists": true,
+      "signature": "Object GetAnnotations()"
+    },
+    {
+      "interface": "IView",
+      "member": "GetOrientationName",
+      "exists": true,
+      "signature": "String GetOrientationName()"
+    },
+    {
+      "interface": "IModelDoc2",
+      "member": "ShowNamedView2",
+      "exists": true,
+      "signature": "Void ShowNamedView2(String, Int32)"
+    },
+    {
+      "interface": "IModelDoc2",
+      "member": "EditCopy",
+      "exists": true,
+      "signature": "Void EditCopy()"
+    },
+    {
+      "interface": "IModelDoc2",
+      "member": "Paste",
+      "exists": true,
+      "signature": "Void Paste()"
     }
   ],
   "constants": [
@@ -325,6 +367,51 @@
       "enum": "swBodyType_e",
       "name": "swAllBodies",
       "value": -1
+    },
+    {
+      "enum": "swAnnotationType_e",
+      "name": "swNote",
+      "value": 6
+    },
+    {
+      "enum": "swAnnotationType_e",
+      "name": "swDisplayDimension",
+      "value": 4
+    },
+    {
+      "enum": "swAnnotationType_e",
+      "name": "swTableAnnotation",
+      "value": 14
+    },
+    {
+      "enum": "swStandardViews_e",
+      "name": "swFrontView",
+      "value": 1
+    },
+    {
+      "enum": "swStandardViews_e",
+      "name": "swBackView",
+      "value": 2
+    },
+    {
+      "enum": "swStandardViews_e",
+      "name": "swLeftView",
+      "value": 3
+    },
+    {
+      "enum": "swStandardViews_e",
+      "name": "swRightView",
+      "value": 4
+    },
+    {
+      "enum": "swStandardViews_e",
+      "name": "swTopView",
+      "value": 5
+    },
+    {
+      "enum": "swStandardViews_e",
+      "name": "swBottomView",
+      "value": 6
     }
   ],
   "unknown_constants": [],
@@ -342,5 +429,12 @@
     "VBA object-property assignment semantics cannot be established by .NET metadata alone.",
     "Visible edge identity does not guarantee complete unoccluded projected circle; GetVisibleEntities2 reports whole topological edges that may be partially visible."
   ],
-  "body_context_mapping_reference": "https://github.com/xarial/codestack/blob/0cde3849a184cdbbface61238ef431a6ebb9d530/solidworks-api/document/drawing/get-view-bodies-mass/SolidWorksMacro.cs"
+  "body_context_mapping_reference": "https://github.com/xarial/codestack/blob/0cde3849a184cdbbface61238ef431a6ebb9d530/solidworks-api/document/drawing/get-view-bodies-mass/SolidWorksMacro.cs",
+  "current_build_id": "DRILL_COPY_VIEW_R2_20261029",
+  "audit_scope_note": "Member list includes historical metadata checks. Current default flow uses copied drawing views, numeric standard directions and scalar transform data; no ModelView/MathVector/named model views required.",
+  "current_native_gaps": [
+    "Numeric ShowNamedView2 applied to selected drawing view requires native test; log GetOrientationName readback.",
+    "GetAnnotations ownership and deletion of copied drawing dimensions/notes requires native source-integrity test.",
+    "Visible planar face topology does not guarantee full hole-edge visibility under self-occlusion."
+  ]
 }
