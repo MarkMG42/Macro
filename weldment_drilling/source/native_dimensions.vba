@@ -133,19 +133,15 @@ Private Function NdFaceOn(ByVal center As Variant, ByVal normalPoint As Variant)
     NdFaceOn = Sqr(dx * dx + dy * dy) / length <= 0.000001
 End Function
 
-Private Function NdProject(ByVal view As SldWorks.View, ByVal values As Variant) As Variant
-    Dim utility As SldWorks.MathUtility, point As SldWorks.MathPoint, projected As SldWorks.MathPoint
-    Dim transform As SldWorks.MathTransform, xyz(2) As Double, result As Variant, i As Long
+Private Function NdProject(ByVal utility As SldWorks.MathUtility, ByVal transform As SldWorks.MathTransform, ByVal values As Variant) As Variant
+    Dim point As SldWorks.MathPoint, projected As SldWorks.MathPoint
+    Dim xyz(2) As Double, result As Variant, i As Long
     If HasItems(values) = False Then Fail "Нет координат точки геометрии."
     If LBound(values) <> 0 Or UBound(values) < 2 Then Fail "Неполные координаты геометрии."
     For i = 0 To 2
         xyz(i) = CDbl(values(i))
         If NdFinite(xyz(i)) = False Then Fail "Неконечные координаты модели."
     Next i
-    Set utility = app.GetMathUtility
-    If utility Is Nothing Then Fail "Недоступен MathUtility."
-    Set transform = view.ModelToViewTransform
-    If transform Is Nothing Then Fail "Нет преобразования вида."
     Set point = utility.CreatePoint(xyz)
     If point Is Nothing Then Fail "Не создана геометрическая точка."
     Set projected = point.MultiplyTransform(transform)
@@ -219,6 +215,7 @@ Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Doubl
                            ByRef holes() As NDHole, ByRef holeCount As Long, ByRef bounds As NDBounds)
     Dim components As Variant, edges As Variant, component As SldWorks.Component2, edge As SldWorks.Edge
     Dim curve As SldWorks.Curve, vertexA As SldWorks.Vertex, vertexB As SldWorks.Vertex, parameters As Object
+    Dim utility As SldWorks.MathUtility, transform As SldWorks.MathTransform
     Dim p As Variant, q As Variant, circleData As Variant, center As Variant, atZero As Variant, atQuarter As Variant
     Dim normalPoint As Variant, uMin As Double, uMax As Double, initialized As Boolean, i As Long
     lineCount = 0: holeCount = 0
@@ -229,6 +226,12 @@ Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Doubl
     If component Is Nothing Then Fail "Пустой видимый компонент."
     edges = view.GetVisibleEntities2(component, swViewEntityType_Edge)
     If HasItems(edges) = False Then Fail "Нет видимых рёбер для размеров."
+    ReDim lines(1 To UBound(edges) - LBound(edges) + 1)
+    ReDim holes(1 To UBound(edges) - LBound(edges) + 1)
+    Set utility = app.GetMathUtility
+    If utility Is Nothing Then Fail "Недоступен MathUtility."
+    Set transform = view.ModelToViewTransform
+    If transform Is Nothing Then Fail "Нет преобразования вида."
     For i = LBound(edges) To UBound(edges)
         Set edge = edges(i)
         If edge Is Nothing Then Fail "Пустое ребро вида."
@@ -239,10 +242,9 @@ Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Doubl
             Set vertexB = edge.GetEndVertex
             If vertexA Is Nothing Then Fail "Нет начала прямого ребра."
             If vertexB Is Nothing Then Fail "Нет конца прямого ребра."
-            p = NdProject(view, vertexA.GetPoint)
-            q = NdProject(view, vertexB.GetPoint)
+            p = NdProject(utility, transform, vertexA.GetPoint)
+            q = NdProject(utility, transform, vertexB.GetPoint)
             lineCount = lineCount + 1
-            ReDim Preserve lines(1 To lineCount)
             lines(lineCount).X1 = p(0): lines(lineCount).Y1 = p(1)
             lines(lineCount).X2 = q(0): lines(lineCount).Y2 = q(1)
             Set lines(lineCount).Entity = edge
@@ -254,17 +256,16 @@ Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Doubl
             circleData = curve.CircleParams
             If HasItems(circleData) = False Then Fail "Нет параметров окружности."
             If LBound(circleData) <> 0 Or UBound(circleData) < 6 Then Fail "Неполные параметры окружности."
-            center = NdProject(view, Array(circleData(0), circleData(1), circleData(2)))
-            atZero = NdProject(view, curve.Evaluate2(0#, 0))
-            atQuarter = NdProject(view, curve.Evaluate2(ND_PI / 2#, 0))
+            center = NdProject(utility, transform, Array(circleData(0), circleData(1), circleData(2)))
+            atZero = NdProject(utility, transform, curve.Evaluate2(0#, 0))
+            atQuarter = NdProject(utility, transform, curve.Evaluate2(ND_PI / 2#, 0))
             uMin = parameters.UMinValue: uMax = parameters.UMaxValue
             NdArcExtrema center, atZero, atQuarter, uMin, uMax, bounds, initialized
             If NdFullCircle(uMin, uMax) Then
-                normalPoint = NdProject(view, Array(circleData(0) + circleData(3), circleData(1) + circleData(4), circleData(2) + circleData(5)))
+                normalPoint = NdProject(utility, transform, Array(circleData(0) + circleData(3), circleData(1) + circleData(4), circleData(2) + circleData(5)))
                 If NdFaceOn(center, normalPoint) Then
                     If NdInnerCylinder(edge) Then
                         holeCount = holeCount + 1
-                        ReDim Preserve holes(1 To holeCount)
                         holes(holeCount).X = center(0): holes(holeCount).Y = center(1)
                         holes(holeCount).Radius = CDbl(circleData(6)) * viewScale
                         Set holes(holeCount).Entity = edge

@@ -32,7 +32,7 @@ for label, path in [('provided_interop', ROOT.parent/'autosizedrilling/SolidWork
     reports.append(dict(label=label, assembly_sha256=sha(path), members=members))
 sources = [ROOT/'InsertWeldWithHoles.txt', ROOT/'source/native_dimensions.vba',
            ROOT/'source/native_dimensions_declarations.vba']
-report = dict(build_id='DRILL_COPY_VIEW_R8_FAST_LOG_20261029', runtime='SOLIDWORKS VBA only',
+report = dict(build_id='DRILL_COPY_VIEW_R9_FAST_GEOMETRY_20261029', runtime='SOLIDWORKS VBA only',
               source_sha256={p.relative_to(ROOT).as_posix(): sha(p) for p in sources},
               assemblies=reports, metadata_audited=True, native_vba_compile=False, native_solidworks_run=False,
               scope='Member names/signatures only; not VBA typechecking, COM execution or Defender scanning')

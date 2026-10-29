@@ -1,9 +1,9 @@
 {
-  "build_id": "DRILL_COPY_VIEW_R8_FAST_LOG_20261029",
+  "build_id": "DRILL_COPY_VIEW_R9_FAST_GEOMETRY_20261029",
   "runtime": "SOLIDWORKS VBA only",
   "source_sha256": {
-    "InsertWeldWithHoles.txt": "fdd65b032bf73569db8f9e1bebfa92378990cb448e2bc4807332af954b10ebd8",
-    "source/native_dimensions.vba": "2829b6a46e7bfc3a57b331ed7ae426cd449ef7f6165d2d28a77e8d1bc3915f8e",
+    "InsertWeldWithHoles.txt": "39b097d1ae46c554453607a483b9fec1590a02fe20a491d87df9dbf9db934ccd",
+    "source/native_dimensions.vba": "5457019cb0d04e89ee4141ae0be229b1a6497ede58861142c84f581a74bb0e47",
     "source/native_dimensions_declarations.vba": "c856b5ee548939932dd4c7e25db09da7183fa516a913db859a072956af9d25db"
   },
   "assemblies": [
