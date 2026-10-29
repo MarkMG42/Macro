@@ -10,6 +10,7 @@ MEMBERS = {
     'IView': ['get_ProjectedDimensions', 'set_ProjectedDimensions', 'SelectEntity',
               'InsertWeldmentTable', 'InsertBreak3', 'GetBreakLines',
               'get_BreakLineGap', 'set_BreakLineGap'],
+    'IBreakLine': ['GetPosition', 'Select'],
     'IDrawingDoc': ['BreakView', 'UnBreakView'],
     'ICurve': ['Evaluate2'],
     'IEdge': ['GetCurveParams3', 'GetTwoAdjacentFaces2'],
@@ -37,7 +38,7 @@ for label, path in [('provided_interop', ROOT.parent/'autosizedrilling/SolidWork
     reports.append(dict(label=label, assembly_sha256=sha(path), members=members))
 sources = [ROOT/'InsertWeldWithHoles.txt', ROOT/'source/native_dimensions.vba',
            ROOT/'source/native_dimensions_declarations.vba']
-report = dict(build_id='DRILL_COPY_VIEW_R12_TABLE_RETRY_20261029', runtime='SOLIDWORKS VBA only',
+report = dict(build_id='DRILL_COPY_VIEW_R13_BREAK_COORDS_20261029', runtime='SOLIDWORKS VBA only',
               source_sha256={p.relative_to(ROOT).as_posix(): sha(p) for p in sources},
               assemblies=reports, metadata_audited=True, native_vba_compile=False, native_solidworks_run=False,
               scope='Member names/signatures only; not VBA typechecking, COM execution or Defender scanning')

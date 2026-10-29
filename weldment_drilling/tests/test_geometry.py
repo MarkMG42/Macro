@@ -304,6 +304,25 @@ class CoreTests(unittest.TestCase):
         self.assertIn('NdValidateAll created, expected, viewScale',body('NdTryBreakLongView'))
         self.assertIn('NdUndoBreak(view, unbrokenWidth)',code)
 
+    def test_break_uses_two_vertical_lines_at_the_same_sheet_y(self):
+        code=body('NdTryBreakLongView')
+        self.assertIn('firstX = NdBreakSheetX(CDbl(plan(0)), bounds, outline)',code)
+        self.assertIn('secondX = NdBreakSheetX(CDbl(plan(1)), bounds, outline)',code)
+        self.assertIn('view.InsertBreak3(swBreakLineVertical, firstX, middleY,',code)
+        self.assertIn('view.InsertBreak3(swBreakLineVertical, secondX, middleY,',code)
+        self.assertLess(code.index('Set breakLine = view.InsertBreak3'),code.index('Set secondLine = view.InsertBreak3'))
+        self.assertLess(code.index('Set secondLine = view.InsertBreak3'),code.index('drawing.BreakView'))
+        self.assertIn('If UBound(breakLines) - LBound(breakLines) + 1 < 2 Then Fail',code)
+        self.assertIn('If HasItems(view.GetBreakLines) Then Fail',body('NdUndoBreak'))
+
+    def test_dimension_lines_are_six_millimetres_apart(self):
+        self.assertIn('Private Const DIM_BASE_OFFSET As Double = 0.007',SOURCE)
+        self.assertIn('Private Const DIM_LINE_STEP As Double = 0.006',SOURCE)
+        code=body('NativeDimensionView')
+        self.assertIn('bounds.MinY - DIM_BASE_OFFSET - (i - 1) * DIM_LINE_STEP',code)
+        self.assertIn('bounds.MinY - DIM_BASE_OFFSET - xPositions.Count * DIM_LINE_STEP',code)
+        self.assertNotIn('0.008',code)
+
     def test_cut_list_outside_sheet_and_ten_millimetre_view_gap(self):
         code=body('TryInsertOutsideCutList')
         self.assertIn('x = sheetWidth + SIDE_MARGIN',code)

@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R12_TABLE_RETRY_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R13_BREAK_COORDS_20261029"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = False
@@ -16,6 +16,8 @@ Private Const BREAK_MAX_WIDTH As Double = 0.18
 Private Const BREAK_GAP As Double = 0.005
 Private Const BREAK_HOLE_CLEARANCE As Double = 0.01
 Private Const BREAK_END_CLEARANCE As Double = 0.015
+Private Const DIM_BASE_OFFSET As Double = 0.007
+Private Const DIM_LINE_STEP As Double = 0.006
 Private Const SIDE_MARGIN As Double = 0.02
 Private Const BOTTOM_MARGIN As Double = 0.04
 Private Const EPS As Double = 0.0000001
@@ -1560,27 +1562,27 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
     For i = 1 To xPositions.Count
         index = CLng(xPositions(i))
         NdAddLinear view, lines(bounds.LeftIndex).Entity, holes(index).Entity, True, _
-                    (bounds.MinX + holes(index).X) / 2#, bounds.MinY - 0.01 - (i - 1) * 0.008, _
+                    (bounds.MinX + holes(index).X) / 2#, bounds.MinY - DIM_BASE_OFFSET - (i - 1) * DIM_LINE_STEP, _
                     holes(index).X - bounds.MinX, True, viewScale, created, expected
     Next i
     NdAddLinear view, lines(bounds.LeftIndex).Entity, lines(bounds.RightIndex).Entity, True, _
-                (bounds.MinX + bounds.MaxX) / 2#, bounds.MinY - 0.01 - xPositions.Count * 0.008, _
+                (bounds.MinX + bounds.MaxX) / 2#, bounds.MinY - DIM_BASE_OFFSET - xPositions.Count * DIM_LINE_STEP, _
                 bounds.MaxX - bounds.MinX, False, viewScale, created, expected
     For i = 1 To yPositions.Count
         index = CLng(yPositions(i))
         NdAddLinear view, lines(bounds.BottomIndex).Entity, holes(index).Entity, False, _
-                    bounds.MaxX + 0.01 + (i - 1) * 0.008, (bounds.MinY + holes(index).Y) / 2#, _
+                    bounds.MaxX + DIM_BASE_OFFSET + (i - 1) * DIM_LINE_STEP, (bounds.MinY + holes(index).Y) / 2#, _
                     holes(index).Y - bounds.MinY, True, viewScale, created, expected
     Next i
     NdAddLinear view, lines(bounds.BottomIndex).Entity, lines(bounds.TopIndex).Entity, False, _
-                bounds.MaxX + 0.01 + yPositions.Count * 0.008, (bounds.MinY + bounds.MaxY) / 2#, _
+                bounds.MaxX + DIM_BASE_OFFSET + yPositions.Count * DIM_LINE_STEP, (bounds.MinY + bounds.MaxY) / 2#, _
                 bounds.MaxY - bounds.MinY, False, viewScale, created, expected
     For i = 1 To groups.Count
         Set group = groups(i)
         index = CLng(group(1))
         drawingModel.ClearSelection2 True
         NdSelectEdge view, holes(index).Entity, False
-        Set display = drawingModel.AddDiameterDimension2(holes(index).X, bounds.MaxY + 0.01 + (i - 1) * 0.008, 0#)
+        Set display = drawingModel.AddDiameterDimension2(holes(index).X, bounds.MaxY + DIM_BASE_OFFSET + (i - 1) * DIM_LINE_STEP, 0#)
         NdRegister display, 2# * holes(index).Radius, created, expected
         If display.Type2 <> swDiameterDimension Then Fail "—оздан не диаметральный размер."
         NdValidate display, 2# * holes(index).Radius, viewScale
@@ -1802,6 +1804,14 @@ Private Function NdBreakPlan(ByRef holes() As NDHole, ByVal holeCount As Long, B
     NdBreakPlan = Array(startX, startX + required)
 End Function
 
+Private Function NdBreakSheetX(ByVal projectedX As Double, ByRef bounds As NDBounds, ByVal outline As Variant) As Double
+    Dim projectedWidth As Double, outlineWidth As Double
+    projectedWidth = bounds.MaxX - bounds.MinX
+    outlineWidth = CDbl(outline(2)) - CDbl(outline(0))
+    If projectedWidth <= 0# Or outlineWidth <= 0# Then Fail "Ќе определена ширина вида дл€ линий разрыва."
+    NdBreakSheetX = CDbl(outline(0)) + (projectedX - bounds.MinX) * outlineWidth / projectedWidth
+End Function
+
 Public Sub TestBreakPlan()
     Dim holes(1 To 3) As NDHole, bounds As NDBounds, plan As Variant
     bounds.MinX = 0#: bounds.MaxX = 0.34
@@ -1821,11 +1831,24 @@ Public Sub TestBreakPlan()
 End Sub
 
 Private Function NdUndoBreak(ByVal view As SldWorks.View, ByVal originalWidth As Double) As String
-    Dim outline As Variant
+    Dim outline As Variant, remaining As Variant, i As Long, line As SldWorks.BreakLine
     On Error GoTo Failed
     SelectDrawingView view
     drawing.UnBreakView
+    remaining = view.GetBreakLines
+    If HasItems(remaining) Then
+        For i = UBound(remaining) To LBound(remaining) Step -1
+            Set line = remaining(i)
+            If Not line Is Nothing Then
+                drawingModel.ClearSelection2 True
+                If line.Select(False, Nothing) = False Then Fail "Ќе выбрана оставша€с€ лини€ разрыва."
+                If drawingModel.Extension.DeleteSelection2(swDelete_Absorbed) = False Then _
+                    Fail "Ќе удалена оставша€с€ лини€ разрыва."
+            End If
+        Next i
+    End If
     drawingModel.EditRebuild3
+    If HasItems(view.GetBreakLines) Then Fail "ѕосле отмены остались линии разрыва."
     outline = ReadOutline(view)
     If CDbl(outline(2)) - CDbl(outline(0)) < originalWidth - 0.0001 Then _
         Fail "ѕосле отмены разрыва исходна€ длина вида не восстановилась."
@@ -1838,10 +1861,11 @@ End Function
 Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() As NDHole, ByVal holeCount As Long, _
                                     ByRef bounds As NDBounds, ByVal viewScale As Double, _
                                     ByVal created As Collection, ByVal expected As Collection) As Boolean
-    Dim plan As Variant, breakLine As SldWorks.BreakLine, outline As Variant
+    Dim plan As Variant, breakLine As SldWorks.BreakLine, secondLine As SldWorks.BreakLine, outline As Variant
     Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
     Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean
-    Dim failure As String, rollback As String
+    Dim failure As String, rollback As String, firstX As Double, secondX As Double, middleY As Double
+    Dim breakLines As Variant
     plan = NdBreakPlan(holes, holeCount, bounds)
     If IsEmpty(plan) Then
         breakWarnings.Add "¬ид [" & currentView & "]: нет свободного участка дл€ длины до 180 мм без закрыти€ отверстий."
@@ -1850,12 +1874,26 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     On Error GoTo Failed
     MarkStage "–азрыв длинного вида после нанесени€ размеров"
     If HasItems(view.GetBreakLines) Then Fail "¬ скопированном виде уже есть линии разрыва."
+    outline = ReadOutline(view)
+    firstX = NdBreakSheetX(CDbl(plan(0)), bounds, outline)
+    secondX = NdBreakSheetX(CDbl(plan(1)), bounds, outline)
+    middleY = (CDbl(outline(1)) + CDbl(outline(3))) / 2#
+    If firstX <= CDbl(outline(0)) Or secondX >= CDbl(outline(2)) Or firstX >= secondX Then _
+        Fail "Ћинии разрыва оказались вне контура вида."
+    WriteLog "–азрыв: проекци€ X=" & CStr(CDbl(plan(0))) & "..." & CStr(CDbl(plan(1))) & _
+             "; контур X=" & CStr(CDbl(outline(0))) & "..." & CStr(CDbl(outline(2))) & _
+             "; линии на листе X=" & CStr(firstX) & "..." & CStr(secondX) & "; Y=" & CStr(middleY)
     oldGap = view.BreakLineGap
     view.BreakLineGap = BREAK_GAP
     SelectDrawingView view
     inserted = True
-    Set breakLine = view.InsertBreak3(swBreakLineVertical, CDbl(plan(0)), CDbl(plan(1)), swBreakLine_Curve, 0, True)
-    If breakLine Is Nothing Then Fail "SOLIDWORKS не создал линии разрыва."
+    Set breakLine = view.InsertBreak3(swBreakLineVertical, firstX, middleY, swBreakLine_Curve, 0, True)
+    If breakLine Is Nothing Then Fail "SOLIDWORKS не создал первую линию разрыва."
+    Set secondLine = view.InsertBreak3(swBreakLineVertical, secondX, middleY, swBreakLine_Curve, 0, True)
+    If secondLine Is Nothing Then Fail "SOLIDWORKS не создал вторую линию разрыва."
+    breakLines = view.GetBreakLines
+    If HasItems(breakLines) = False Then Fail "Ћинии разрыва не обнаружены в виде."
+    If UBound(breakLines) - LBound(breakLines) + 1 < 2 Then Fail "¬ид содержит менее двух линий разрыва."
     drawing.BreakView
     drawingModel.EditRebuild3
     outline = ReadOutline(view)

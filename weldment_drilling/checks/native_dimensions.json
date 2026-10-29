@@ -1,9 +1,9 @@
 {
-  "build_id": "DRILL_COPY_VIEW_R12_TABLE_RETRY_20261029",
+  "build_id": "DRILL_COPY_VIEW_R13_BREAK_COORDS_20261029",
   "runtime": "SOLIDWORKS VBA only",
   "source_sha256": {
-    "InsertWeldWithHoles.txt": "aab12636be9fe5eb829c3040691536d7b5389eb85f5ac88b944e2c2a26c5020b",
-    "source/native_dimensions.vba": "7ee64042feb8ae50ed6b51a69d3cf170d3f29817eafe576a1f8fe46f242ed4bd",
+    "InsertWeldWithHoles.txt": "9a31d701afdc63c27444f9405ebe1e2d1a28a4c1c4bdd32b62159479956c70c3",
+    "source/native_dimensions.vba": "8d4d76be483e142b48e4405d96c38fc0f9285466fb5f428c8e84f5595be02b80",
     "source/native_dimensions_declarations.vba": "c856b5ee548939932dd4c7e25db09da7183fa516a913db859a072956af9d25db"
   },
   "assemblies": [
@@ -84,6 +84,23 @@
           "signature_blob_hex": "2001010d",
           "parameter_names": [
             "DBreakLineGap"
+          ]
+        },
+        {
+          "interface": "IBreakLine",
+          "member": "GetPosition",
+          "signature_blob_hex": "20010d08",
+          "parameter_names": [
+            "Index"
+          ]
+        },
+        {
+          "interface": "IBreakLine",
+          "member": "Select",
+          "signature_blob_hex": "20020202128a40",
+          "parameter_names": [
+            "Append",
+            "Data"
           ]
         },
         {
@@ -351,6 +368,23 @@
           "signature_blob_hex": "2001010d",
           "parameter_names": [
             "DBreakLineGap"
+          ]
+        },
+        {
+          "interface": "IBreakLine",
+          "member": "GetPosition",
+          "signature_blob_hex": "20010d08",
+          "parameter_names": [
+            "Index"
+          ]
+        },
+        {
+          "interface": "IBreakLine",
+          "member": "Select",
+          "signature_blob_hex": "20020202128a40",
+          "parameter_names": [
+            "Append",
+            "Data"
           ]
         },
         {

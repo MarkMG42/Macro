@@ -1,10 +1,10 @@
 {
-  "tests": 36,
+  "tests": 38,
   "failures": 0,
   "errors": 0,
   "skipped": 0,
-  "source_sha256": "aab12636be9fe5eb829c3040691536d7b5389eb85f5ac88b944e2c2a26c5020b",
-  "tests_sha256": "095d0521bfd405b1cf3728e9da6e4bcb6ece082b4587ff64c1fd0e34a5c545f1",
+  "source_sha256": "9a31d701afdc63c27444f9405ebe1e2d1a28a4c1c4bdd32b62159479956c70c3",
+  "tests_sha256": "8503237d0541229ca028d101ddf0d30eaeb643f144d6c835a1cd0d4326c7fa8b",
   "native_vba_execution": false,
   "native_solidworks_execution": false,
   "scope": "Pure scalar/policy expressions, encoding and architectural regression; no COM execution"
