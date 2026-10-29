@@ -430,7 +430,7 @@
     "Visible edge identity does not guarantee complete unoccluded projected circle; GetVisibleEntities2 reports whole topological edges that may be partially visible."
   ],
   "body_context_mapping_reference": "https://github.com/xarial/codestack/blob/0cde3849a184cdbbface61238ef431a6ebb9d530/solidworks-api/document/drawing/get-view-bodies-mass/SolidWorksMacro.cs",
-  "current_build_id": "DRILL_COPY_VIEW_R5_OBJECT_VIEWS_20261029",
+  "current_build_id": "DRILL_COPY_VIEW_R6_DIMENSIONS_20261029",
   "audit_scope_note": "Member list includes historical metadata checks. Current default flow uses copied drawing views, numeric standard directions and scalar transform data; no ModelView/MathVector/named model views required.",
   "current_native_gaps": [
     "Numeric ShowNamedView2 applied to selected drawing view requires native test; log GetOrientationName readback.",
@@ -482,5 +482,6 @@
     "swObjectSame": 1,
     "swObjectUnsupported": 2
   },
-  "r5_scope": "Metadata verified in 32.1.0; native IsSame support for IView NOT verified. Collection snapshot, VBA Is/positive IsSame, double-read preflight and original-object subset guard; names only diagnostic. R4 GetUniqueName key assumption disproved by user log."
+  "r5_scope": "Metadata verified in 32.1.0; native IsSame support for IView NOT verified. Collection snapshot, VBA Is/positive IsSame, double-read preflight and original-object subset guard; names only diagnostic. R4 GetUniqueName key assumption disproved by user log.",
+  "r6_scope": "Actual compiled bridge/standalone against provided autosizedrilling Interop assemblies. IAnnotation.GetPosition for text anchors; no GetBox. Explicit IDispatch/host/view/final placement; no unverified DLL RunMacro2 hosting. See integration.json; native COM/registration/SW not tested."
 }

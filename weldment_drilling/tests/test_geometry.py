@@ -84,11 +84,11 @@ class CoreTests(unittest.TestCase):
         for unknown,remaining,completed,expected in [(False,0,0,True),(False,3,3,True),(False,4,3,False),(True,3,3,False),(True,0,0,False),(False,2,3,False)]:
             self.assertEqual(assignment('CanContinueAfterFailure','CanContinueAfterFailure',dict(unknownPaste=unknown,remaining=remaining,completed=completed)),expected)
 
-    def test_layout_uses_outline_not_origin(self):
+    def test_top_right_layout_uses_outline_not_origin(self):
         outline,position = (-.06,-.025,.14,.075),[.2,.3]
-        env = dict(position=position,outline=outline,SIDE_MARGIN=.02,cursorY=.4)
+        env = dict(position=position,outline=outline,SIDE_MARGIN=.02,cursorY=.4,sheetWidth=.42)
         x,y = assignment('PlaceDetail','position(0)',env),assignment('PlaceDetail','position(1)',env)
-        self.assertAlmostEqual(outline[0]+x-position[0],.02)
+        self.assertAlmostEqual(outline[2]+x-position[0],.4)
         self.assertAlmostEqual(outline[3]+y-position[1],.4)
         self.assertAlmostEqual(assignment('PlaceDetail','cursorY',dict(outline=outline,GAP=.015)),-.04)
 
@@ -177,6 +177,39 @@ class CoreTests(unittest.TestCase):
         self.assertIn('ViewIndex(remaining, survivor)',deleted)
         self.assertNotIn('ViewIndex(remaining, view)',deleted)
         self.assertNotIn('view.Get',deleted)
+
+    def test_dimension_envelope_reflow_stacks_from_top_right(self):
+        box=[-.04,-.07,.18,.09]
+        env=dict(box=box,sheetWidth=.42,SIDE_MARGIN=.02,cursorY=.277)
+        dx=assignment('PlaceDimensionBox','dx',env)
+        dy=assignment('PlaceDimensionBox','dy',env)
+        self.assertAlmostEqual(box[2]+dx,.4)
+        self.assertAlmostEqual(box[3]+dy,.277)
+        moved=[box[0]+dx,box[1]+dy,box[2]+dx,box[3]+dy]
+        next_y=assignment('PlaceDimensionBox','cursorY',dict(moved=moved,GAP=.015))
+        self.assertAlmostEqual((box[1]+dy)-next_y,.015)
+
+    def test_dimension_pass_selects_each_created_view_and_requires_handshake(self):
+        code=body('DimensionAndArrange')
+        self.assertIn('bridge.BuildId',code)
+        self.assertIn('For i = 1 To madeViews.Count',code)
+        attempt=body('TryDimensionView')
+        self.assertLess(attempt.index('SelectDrawingView view'),attempt.index('bridge.ProcessSelectedView(app, view, targetRight, targetTop)'))
+        self.assertIn('CDbl(result(0)) <= 0#',attempt)
+        self.assertNotIn('CleanupSince',code+attempt)
+        self.assertNotIn('TryDeleteView',code+attempt)
+        self.assertLess(SOURCE.index('If ProcessBody(source, config, i, cursorY, width)'),SOURCE.index('DimensionAndArrange width, height'))
+
+    def test_strict_engine_reuses_geometry_and_reports_failures_after_rollback(self):
+        engine=(ROOT.parent/'autosizedrilling/src/SolidWorksMacro.cs').read_text()
+        self.assertIn('public double[] RunForIntegration(SldWorks application)',engine)
+        self.assertIn('return RunCore(application, true)',engine)
+        self.assertLess(engine.index('bool rolledBack = Rollback()'),engine.index('if (strict) throw'))
+        self.assertLess(engine.index('bool modeRestored = RestoreViewMode()'),engine.index('if (strict) throw'))
+        self.assertIn('#if !DRILLING_BATCH',engine)
+        bridge=(ROOT/'integration/Bridge.cs').read_text()
+        self.assertIn('new AutoSizeDrill().RunForIntegration(app, targetRight, targetTop)',bridge)
+        self.assertNotIn('GetActiveObject',bridge)
 
     def test_windows_import_encoding(self):
         self.assertEqual((ROOT/'InsertWeldWithHoles.bas').read_text(encoding='cp1251'),SOURCE)

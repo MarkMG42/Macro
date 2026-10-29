@@ -8,6 +8,7 @@ using SolidWorks.Interop.swconst;
 
 namespace AutoSizeDrilling
 {
+    #if !DRILLING_BATCH
     // Preserve the original VSTA entry point and GUID. This is not a standalone EXE.
     [ComVisible(true)]
     [Guid("fcaaccd5-4cd6-4682-a2d6-5f5c3d34c3d8")]
@@ -22,6 +23,8 @@ namespace AutoSizeDrilling
         }
     }
 
+    #endif
+
     public sealed class AutoSizeDrill
     {
         private ModelDoc2 model;
@@ -35,8 +38,33 @@ namespace AutoSizeDrilling
         private DiagnosticLog log;
         private string phase;
         private bool? originalProjectedDimensions;
+        private double[] geometryEnvelope;
+        private double[] originalPosition;
 
         public void Run(SldWorks application = null)
+        {
+            RunCore(application, false);
+        }
+
+        // Strict batch entry: same geometry/validation/rollback as the interactive macro,
+        // but failures propagate to the VBA caller instead of being swallowed by a dialog.
+        public double[] RunForIntegration(SldWorks application)
+        {
+            if (application == null) throw new ArgumentNullException(nameof(application));
+            return RunCore(application, true);
+        }
+
+        public double[] RunForIntegration(SldWorks application, double targetRight, double targetTop)
+        {
+            if (application == null) throw new ArgumentNullException(nameof(application));
+            if (double.IsNaN(targetRight) || double.IsInfinity(targetRight) ||
+                double.IsNaN(targetTop) || double.IsInfinity(targetTop))
+                throw new ArgumentException("Неконечные координаты компоновки.");
+            return RunCore(application, true, targetRight, targetTop);
+        }
+
+        private double[] RunCore(SldWorks application, bool strict,
+            double? targetRight = null, double? targetTop = null)
         {
             log = new DiagnosticLog();
             try
@@ -57,6 +85,13 @@ namespace AutoSizeDrilling
                 if (math == null) throw new InvalidOperationException("Недоступен MathUtility.");
                 geometry = new Geometry(view.ScaleDecimal);
                 log.Write("scale=" + DiagnosticLog.Number(geometry.Scale) + "; assembly=" + assembly);
+                if (strict && targetRight.HasValue)
+                {
+                    originalPosition = view.Position as double[];
+                    if (originalPosition == null || originalPosition.Length < 2)
+                        throw new InvalidOperationException("Нет исходного положения вида для компоновки.");
+                    originalPosition = (double[])originalPosition.Clone();
+                }
                 originalProjectedDimensions = view.ProjectedDimensions;
                 log.Write("ProjectedDimensions before=" + originalProjectedDimensions.Value);
                 // Horizontal/vertical creation alone does not override a view's true-size mode.
@@ -73,23 +108,52 @@ namespace AutoSizeDrilling
                 phase = "after rebuild";
                 foreach (var expected in expectedValues.ToArray()) Validate(expected.Key, expected.Value);
                 model.GraphicsRedraw2();
+                var result = strict ? DimensionEnvelope() : null;
+                if (strict && targetRight.HasValue && targetTop.HasValue)
+                {
+                    var position = (double[])originalPosition.Clone();
+                    double dx = targetRight.Value - result[3];
+                    double dy = targetTop.Value - result[4];
+                    position[0] += dx;
+                    position[1] += dy;
+                    view.Position = position;
+                    model.EditRebuild3();
+                    var actualPosition = view.Position as double[];
+                    if (actualPosition == null || actualPosition.Length < 2 ||
+                        Math.Abs(actualPosition[0] - position[0]) > 0.0001 ||
+                        Math.Abs(actualPosition[1] - position[1]) > 0.0001)
+                        throw new InvalidOperationException("Не применено положение вида с размерами.");
+                    geometryEnvelope[0] += dx; geometryEnvelope[2] += dx;
+                    geometryEnvelope[1] += dy; geometryEnvelope[3] += dy;
+                    phase = "after batch placement";
+                    foreach (var expected in expectedValues.ToArray()) Validate(expected.Key, expected.Value);
+                    result = DimensionEnvelope();
+                    if (Math.Abs(result[3] - targetRight.Value) > 0.0001 ||
+                        Math.Abs(result[4] - targetTop.Value) > 0.0001)
+                        throw new InvalidOperationException("Не подтверждена компоновка вида с размерами справа/сверху.");
+                }
                 log.Write("SUCCESS: validated " + created.Count + " dimensions after rebuild");
+                return result;
             }
             catch (Exception ex)
             {
                 bool rolledBack = Rollback();
+                bool positionRestored = RestoreViewPosition();
                 bool modeRestored = RestoreViewMode();
                 log.Write("FAILURE: " + ex + "; rollback=" + rolledBack);
                 string message = "AutoSizeDrilling: " + ex.Message +
                     (rolledBack ? "\nНовые размеры отменены; существующие размеры не удалялись." :
                     "\nНе все новые размеры удалось удалить. Проверьте чертёж перед сохранением.") +
+                    (positionRestored ? "" : "\nНе удалось восстановить исходное положение вида.") +
                     (modeRestored ? "" : "\nНе удалось восстановить исходный режим размеров вида; проверьте его вручную.") +
                     (log.FilePath == null ? "\nНе удалось сохранить диагностический журнал." : "\nЖурнал: " + log.FilePath);
                 Debug.WriteLine(ex);
                 // No WinForms dependency; display through the existing SolidWorks host.
+                if (strict) throw new InvalidOperationException(message, ex);
                 var app = application;
                 if (app != null) app.SendMsgToUser(message);
                 else throw new InvalidOperationException(message, ex);
+                return null;
             }
             finally
             {
@@ -101,11 +165,37 @@ namespace AutoSizeDrilling
                     entityIds.Clear();
                     expectedValues.Clear();
                     originalProjectedDimensions = null;
+                    geometryEnvelope = null;
+                    originalPosition = null;
                     view = null;
                     math = null;
                     model = null;
                 }
             }
+        }
+
+        private double[] DimensionEnvelope()
+        {
+            if (created.Count == 0 || geometryEnvelope == null)
+                throw new InvalidOperationException("Нет подтверждённых размеров для компоновки.");
+            var box = (double[])geometryEnvelope.Clone();
+            foreach (var dimension in created)
+            {
+                var annotation = dimension.GetAnnotation() as Annotation;
+                var point = annotation?.GetPosition() as double[];
+                if (point == null || point.Length < 2 ||
+                    double.IsNaN(point[0]) || double.IsInfinity(point[0]) ||
+                    double.IsNaN(point[1]) || double.IsInfinity(point[1]))
+                    throw new InvalidOperationException("Не удалось прочитать положение созданного размера.");
+                box[0] = Math.Min(box[0], point[0]);
+                box[1] = Math.Min(box[1], point[1]);
+                box[2] = Math.Max(box[2], point[0]);
+                box[3] = Math.Max(box[3], point[1]);
+            }
+            // Sheet metres. Text anchors plus allowance, NOT exact glyph bounding boxes.
+            const double textAllowance = 0.015;
+            return new[] { (double)created.Count, box[0] - textAllowance,
+                box[1] - textAllowance, box[2] + textAllowance, box[3] + textAllowance };
         }
 
         private double[] Transform(double[] p, Component2 component)
@@ -190,6 +280,7 @@ namespace AutoSizeDrilling
         {
             ReadGeometry(out var lines, out var candidates, out var extrema);
             var b = geometry.FindBounds(lines, extrema);
+            geometryEnvelope = new[] { b.Left, b.Bottom, b.Right, b.Top };
             log.Write("DATUM left=" + EntityId(b.LeftEdge.Entity) + " right=" + EntityId(b.RightEdge.Entity) +
                 " bottom=" + EntityId(b.BottomEdge.Entity) + " top=" + EntityId(b.TopEdge.Entity));
             var holes = geometry.PrepareHoles(candidates, b);
@@ -307,6 +398,21 @@ namespace AutoSizeDrilling
                 catch (Exception ex) { Debug.WriteLine(ex); ok = false; }
             }
             return ok;
+        }
+
+        private bool RestoreViewPosition()
+        {
+            if (originalPosition == null || view == null) return true;
+            try
+            {
+                view.Position = (double[])originalPosition.Clone();
+                model.EditRebuild3();
+                var actual = view.Position as double[];
+                return actual != null && actual.Length >= 2 &&
+                    Math.Abs(actual[0] - originalPosition[0]) <= 0.0001 &&
+                    Math.Abs(actual[1] - originalPosition[1]) <= 0.0001;
+            }
+            catch (Exception ex) { log.Write("Restore view position failed: " + ex); return false; }
         }
 
         private bool RestoreViewMode()

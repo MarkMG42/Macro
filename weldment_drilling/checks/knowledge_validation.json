@@ -15,10 +15,13 @@
     "Protected file changed: weldment_drilling/checks/release.json",
     "Protected file changed: weldment_drilling/checks/tests.json",
     "Protected file changed: weldment_drilling/tests/test_geometry.py",
-    "Protected file changed: weldment_drilling/tools/package_release.py"
+    "Protected file changed: weldment_drilling/tools/package_release.py",
+    "Extracted AutoSizeDrilling file differs: autosizedrilling/README.md",
+    "Extracted AutoSizeDrilling file differs: autosizedrilling/src/DiagnosticLog.cs",
+    "Extracted AutoSizeDrilling file differs: autosizedrilling/src/SolidWorksMacro.cs"
   ],
   "unexpected_findings": [],
-  "reason": "Preservation snapshot was created for repository reorganization. Current user explicitly requests edits to weldment_drilling and its knowledge record; immutable baseline is not rewritten to hide differences.",
-  "native_solidworks_run": false,
-  "current_build_id": "DRILL_COPY_VIEW_R5_OBJECT_VIEWS_20261029"
+  "reason": "Immutable reorganization snapshot predates explicitly requested weldment_drilling work and the new AutoSizeDrilling integration. Only the three related autosizedrilling source/document files are additionally authorized; original/candidate binaries stay unchanged.",
+  "current_build_id": "DRILL_COPY_VIEW_R6_DIMENSIONS_20261029",
+  "native_solidworks_run": false
 }

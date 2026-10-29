@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>Macro.DrillingDimensionsBridge</AssemblyName>
+    <RootNamespace>Macro.DrillingDimensionsIntegration</RootNamespace>
+    <Version>1.0.1</Version>
+    <LangVersion>latest</LangVersion>
+    <DefineConstants>$(DefineConstants);DRILLING_BATCH</DefineConstants>
+    <Deterministic>true</Deterministic>
+    <DebugType>portable</DebugType>
+    <PathMap>$(MSBuildProjectDirectory)=/src/DrillingDimensionsBridge</PathMap>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../autosizedrilling/src/SolidWorksMacro.cs" Link="AutoSizeDrilling/SolidWorksMacro.cs" />
+    <Compile Include="../../autosizedrilling/src/Geometry.cs" Link="AutoSizeDrilling/Geometry.cs" />
+    <Compile Include="../../autosizedrilling/src/DiagnosticLog.cs" Link="AutoSizeDrilling/DiagnosticLog.cs" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>../../autosizedrilling/SolidWorks.Interop.sldworks.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>../../autosizedrilling/SolidWorks.Interop.swconst.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

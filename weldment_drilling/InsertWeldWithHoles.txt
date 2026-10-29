@@ -2,7 +2,10 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R5_OBJECT_VIEWS_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R6_DIMENSIONS_20261029"
+Private Const AUTO_DIMENSIONS As Boolean = True
+Private Const DIMENSIONS_PROGID As String = "Macro.DrillingDimensions"
+Private Const DIMENSIONS_BUILD As String = "DRILLING_DIMENSIONS_BRIDGE_R2_20261029"
 Private Const HOLES_LEFT As Boolean = True
 Private Const HOLE_SIDE_TOLERANCE As Double = 0.0001
 Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
@@ -24,6 +27,10 @@ Private madeTable As SldWorks.WeldmentCutListAnnotation
 Private visited As Object
 Private skipped As Collection
 Private orientationWarnings As Collection
+Private dimensionWarnings As Collection
+Private dimensionsCompleted As Long
+Private dimensionsFailed As Long
+Private dimensionsOutside As Long
 Private currentStage As String
 Private currentBody As String
 Private currentView As String
@@ -34,13 +41,17 @@ Private unsupportedViewComparisons As Long
 
 Public Sub start()
     Dim source As SldWorks.View, sheet As SldWorks.Sheet
-    Dim config As String, message As String, cleanup As String, errorText As String
+    Dim config As String, message As String, cleanup As String, errorText As String, prompt As String
     Dim bodies As Collection, cursorY As Double, width As Double, height As Double
     Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle, outside As Long
     On Error GoTo Failed
     Set madeViews = New Collection
     Set skipped = New Collection
     Set orientationWarnings = New Collection
+    Set dimensionWarnings = New Collection
+    dimensionsCompleted = 0
+    dimensionsFailed = 0
+    dimensionsOutside = 0
     Set madeTable = Nothing
     Set partModel = Nothing
     Set drawingModel = Nothing
@@ -96,8 +107,8 @@ Public Sub start()
     width = CDbl(props(5))
     height = CDbl(props(6))
     If width <= 2# * SIDE_MARGIN Or height <= BOTTOM_MARGIN Then Fail "Неверные размеры листа."
-    MarkStage "Поиск свободного места под существующими видами"
-    cursorY = LowestViewBottom(sheet, height) - GAP
+    MarkStage "Начало компоновки в правом верхнем углу листа"
+    cursorY = height - SIDE_MARGIN
     If Len(TABLE_TEMPLATE) > 0 Then
         If Len(Dir$(TABLE_TEMPLATE)) = 0 Then Fail "Не найден шаблон таблицы: " & TABLE_TEMPLATE
     End If
@@ -117,7 +128,16 @@ Public Sub start()
         currentBody = CStr(bodies(i))
         If ProcessBody(source, config, i, cursorY, width) Then completed = completed + 1
     Next i
+    If AUTO_DIMENSIONS And completed > 0 Then DimensionAndArrange width, height
     message = "Создано видов: " & CStr(completed) & "; пропущено позиций: " & CStr(skipped.Count) & "."
+    If AUTO_DIMENSIONS Then message = message & vbCrLf & "Размеры: обработано видов=" & CStr(dimensionsCompleted) & "; не обработано=" & CStr(dimensionsFailed) & "."
+    If dimensionsOutside > 0 Then message = message & vbCrLf & "Оформление за полями: " & CStr(dimensionsOutside) & ". Требуется компоновка."
+    If dimensionWarnings.Count > 0 Then
+        icon = vbExclamation
+        For i = 1 To dimensionWarnings.Count
+            If i <= 3 Then message = message & vbCrLf & CStr(dimensionWarnings(i))
+        Next i
+    End If
     outside = CountOutsideLayout(width, height)
     If outside > 0 Then
         icon = vbExclamation
@@ -168,7 +188,10 @@ Finished:
     On Error GoTo 0
     If Len(logPath) > 0 Then message = message & vbCrLf & "Журнал: " & logPath
     If icon = 0 Then icon = vbInformation
-    MsgBox BUILD_ID & vbCrLf & message, icon, "Сверловка"
+    WriteLog "Итог: " & Replace(message, vbCrLf, " | ")
+    prompt = BUILD_ID & vbCrLf & message
+    If Len(prompt) > 950 Then prompt = Left$(prompt, 700) & vbCrLf & "Полный отчёт в журнале: " & logPath
+    MsgBox prompt, icon, "Сверловка"
 End Sub
 
 Private Function ProcessBody(ByVal source As SldWorks.View, ByVal config As String, ByVal index As Long, _
@@ -880,13 +903,94 @@ Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, By
         WriteLog "Вид сохраняется в рабочей области за полями листа; требуется компоновка перед печатью."
     End If
     position = ReadPosition(view)
-    position(0) = position(0) + SIDE_MARGIN - outline(0)
+    position(0) = position(0) + sheetWidth - SIDE_MARGIN - outline(2)
     position(1) = position(1) + cursorY - outline(3)
     view.Position = position
     drawingModel.EditRebuild3
     outline = ReadOutline(view)
-    If Abs(outline(0) - SIDE_MARGIN) > 0.0001 Or Abs(outline(3) - cursorY) > 0.0001 Then Fail "SOLIDWORKS не применил положение вида."
+    If Abs(outline(2) - (sheetWidth - SIDE_MARGIN)) > 0.0001 Or Abs(outline(3) - cursorY) > 0.0001 Then Fail "SOLIDWORKS не применил положение вида."
     cursorY = outline(1) - GAP
+End Sub
+
+Private Sub DimensionAndArrange(ByVal sheetWidth As Double, ByVal sheetHeight As Double)
+    Dim bridge As Object, view As SldWorks.View, i As Long, cursorY As Double, box As Variant
+    Dim errorText As String, remainder As Long
+    On Error GoTo Failed
+    MarkStage "Подключение AutoSizeDrilling"
+    Set bridge = CreateObject(DIMENSIONS_PROGID)
+    If StrComp(CStr(bridge.BuildId), DIMENSIONS_BUILD, vbBinaryCompare) <> 0 Then Fail "Версия компонента размеров не совпадает. Повторно установите компонент из текущего выпуска."
+    cursorY = sheetHeight - SIDE_MARGIN
+    ' Complete ALL body views first; then select and dimension one view at a time.
+    For i = 1 To madeViews.Count
+        Set view = madeViews(i)
+        currentView = view.GetName2
+        currentBody = "DIMENSIONS " & CStr(i)
+        currentDirection = 0
+        If TryDimensionView(bridge, view, box, sheetWidth - SIDE_MARGIN, cursorY) Then
+            dimensionsCompleted = dimensionsCompleted + 1
+            ' The strict engine already placed/rebuilt/revalidated this view. Do not move it again.
+            If OutlineInLayout(box, sheetWidth, sheetHeight) = False Then dimensionsOutside = dimensionsOutside + 1
+            cursorY = box(1) - GAP
+        Else
+            dimensionsFailed = dimensionsFailed + 1
+            MarkStage "Компоновка вида без подтверждённых размеров"
+            PlaceDimensionBox view, box, cursorY, sheetWidth, sheetHeight
+        End If
+    Next i
+    Exit Sub
+Failed:
+    errorText = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog errorText
+    remainder = madeViews.Count - dimensionsCompleted - dimensionsFailed
+    If remainder > 0 Then dimensionsFailed = dimensionsFailed + remainder
+    dimensionWarnings.Add "Виды сохранены; этап размеров/компоновки остановлен: " & errorText & _
+                          " Компонент размеров устанавливается через integration/release/Register-Bridge.cmd."
+End Sub
+
+Private Function TryDimensionView(ByVal bridge As Object, ByVal view As SldWorks.View, ByRef box As Variant, _
+                                  ByVal targetRight As Double, ByVal targetTop As Double) As Boolean
+    Dim result As Variant, errorText As String
+    On Error GoTo Failed
+    MarkStage "AutoSizeDrilling: выбор одного созданного вида"
+    SelectDrawingView view
+    result = bridge.ProcessSelectedView(app, view, targetRight, targetTop)
+    If HasItems(result) = False Then Fail "Компонент размеров не вернул результат."
+    If LBound(result) <> 0 Or UBound(result) <> 4 Then Fail "Неизвестный формат результата размеров."
+    If CDbl(result(0)) <= 0# Then Fail "Компонент не подтвердил созданные размеры."
+    box = Array(CDbl(result(1)), CDbl(result(2)), CDbl(result(3)), CDbl(result(4)))
+    If box(2) <= box(0) Or box(3) <= box(1) Then Fail "Пустой габарит оформления."
+    WriteLog "AutoSizeDrilling: подтверждено размеров=" & CStr(result(0))
+    TryDimensionView = True
+    Exit Function
+Failed:
+    errorText = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog errorText
+    dimensionWarnings.Add "Вид [" & currentView & "]: размеры не подтверждены; " & errorText
+    On Error GoTo 0
+    ' The engine reports its own best-effort rollback; never delete an already valid body view.
+    box = ReadOutline(view)
+End Function
+
+Private Sub PlaceDimensionBox(ByVal view As SldWorks.View, ByVal box As Variant, ByRef cursorY As Double, _
+                              ByVal sheetWidth As Double, ByVal sheetHeight As Double)
+    Dim position As Variant, actual As Variant, dx As Double, dy As Double, moved As Variant
+    If FitsLayout(box(2) - box(0), box(3) - box(1), cursorY, sheetWidth) = False Then
+        If ALLOW_WORKSPACE_LAYOUT = False Then Fail "Не хватает места для вида с размерами."
+    End If
+    dx = sheetWidth - SIDE_MARGIN - box(2)
+    dy = cursorY - box(3)
+    position = ReadPosition(view)
+    position(0) = position(0) + dx
+    position(1) = position(1) + dy
+    If Abs(dx) > EPS Or Abs(dy) > EPS Then
+        view.Position = position
+        drawingModel.EditRebuild3
+    End If
+    actual = ReadPosition(view)
+    If Abs(actual(0) - position(0)) > 0.0001 Or Abs(actual(1) - position(1)) > 0.0001 Then Fail "Не применена компоновка вида с размерами."
+    moved = Array(box(0) + dx, box(1) + dy, box(2) + dx, box(3) + dy)
+    If OutlineInLayout(moved, sheetWidth, sheetHeight) = False Then dimensionsOutside = dimensionsOutside + 1
+    cursorY = moved(1) - GAP
 End Sub
 
 Private Function HolesNeedFlip(ByVal meanX As Double, ByVal left As Double, ByVal right As Double, ByVal tolerance As Double) As Boolean

@@ -20,7 +20,7 @@ namespace AutoSizeDrilling
                 FilePath = Path.Combine(directory, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture) +
                     "-" + Guid.NewGuid().ToString("N") + ".log");
                 writer = new StreamWriter(FilePath, false) { AutoFlush = true };
-                Write("AutoSizeDrilling " + typeof(SolidWorksMacro).Assembly.GetName().Version +
+                Write("AutoSizeDrilling " + typeof(AutoSizeDrill).Assembly.GetName().Version +
                     "; coordinates in sheet metres; measured values in model millimetres");
             }
             catch (Exception ex) { Disable(ex); }

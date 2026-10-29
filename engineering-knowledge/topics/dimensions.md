@@ -174,3 +174,37 @@ MathPoint.MultiplyTransform(View.ModelToViewTransform), проверки Nothing
 380/470 на500мм, симметрия, перенос/масштаб и порядок шагов проверены автоматически;
 реальные COM-проекции, разворот и восстановление Не проверены в SolidWorks.
 Методы подтверждены interop32.1.0, это не native SW2025. Снимок/457 — D4/R4.
+
+## M7. AutoSizeDrilling в batch после создания видов
+
+29.10.2026, R6, пользователь явно запросил интеграцию. Изменены только связанные
+src/SolidWorksMacro.cs и DiagnosticLog.cs; Geometry/оригинал/candidate не заменены.
+Строгий RunForIntegration переиспользует RunCore, передаёт исключение после
+Rollback + RestoreViewPosition + RestoreViewMode. Интерактивный Run(host) остаётся
+с диалогом; прежний Execute/пустая строка не используется как признак успеха.
+
+Отдельная сборка Macro.DrillingDimensionsBridge (net48/x64) напрямую линкует
+три C#-исходника. DRILLING_BATCH исключает прежний ComVisible VSTA-класс и GUID,
+assembly ComVisible(false), наружу только новый IDispatch/класс/ProgId. Это предотвращает
+перерегистрацию оригинала. VBA передаёт текущий host, ожидаемый View и целевые
+right/top; мост проверяет выбранный объект. ROT и неподтверждённый RunMacro2
+для DLL без VSTA-проекта не используются. RegAsm Framework64 /codebase требует
+постоянной папки Windows; регистрация + Check-Bridge.vbs подготовлены, но не запускались.
+
+Результат — Double[5] {число,left,bottom,right,top}: геометрия + настоящие позиции
+новых Annotation.GetPosition + запас15мм. Это не точные границы глифов, GetBox
+у IAnnotation в исследованных метаданных нет. Движок сдвигает view.Position,
+сдвигает сохранённые geometryEnvelope X/Y тем же вектором, rebuild, повторно
+проверяет все SystemValue, считывает новые позиции надписей и проверяет targetright/top.
+Без сдвига geometryEnvelope финальная рамка смешала бы старые/новые координаты.
+После успеха VBA повторно вид не двигает. Ошибки размеров считаются отдельно,
+виды сохраняются; откат best-effort и не равен транзакции. Чужие размеры не удаляются.
+
+Проверено автоматически: мост и standalone собираются SDK8.0.408 без предупреждений;
+23 реальных Geometry-теста, VBA/архитектура/ANTLR, metadata x64/COM/исключение старого
+CLSID, хеши/упаковка. check_integration.py выполняет сборки/тесты и записывает
+реальные коды исхода; package_release требует совпадения всех связанных source/DLL-хешей.
+Первый dotnet run --artifacts-path не запустил тесты (SDK искал старый bin-путь);
+исправлено явным dotnet artifacts/.../GeometryTests.dll, после этого23/0.
+Не проверено: регистрация/активация COM, IView identity через managed/native границу,
+native подбор рёбер, размерные привязки, позиционирование аннотаций и откат SW2025.

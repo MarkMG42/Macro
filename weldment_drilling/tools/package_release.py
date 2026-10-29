@@ -35,15 +35,22 @@ def main():
     assert not list(ROOT.rglob('*.swp')), 'Do not ship SWP without native load validation'
     report = dict(source_sha256=sha(source), import_module_sha256=sha(module),
                   original_module_sha256=sha(ROOT / 'original/InsertWeldWithHoles.bas'),
-                  build_id='DRILL_COPY_VIEW_R5_OBJECT_VIEWS_20261029', workflow='Copy source drawing view, filter body, inspect six directions',
+                  build_id='DRILL_COPY_VIEW_R6_DIMENSIONS_20261029', workflow='Copy source drawing view, filter body, inspect six directions',
                   native_vba_compile=False, native_solidworks_run=False,
                   binary_swp_rebuilt=False, binary_swp_withdrawn=True,
                   native_solidworks_load=False, original_swp_sha256=
                   'ed7d9dc23db5bead52dc6208b314897fd7c96cf735f4ce82b0f945101c82363e')
     (ROOT / 'checks/release.json').write_text(json.dumps(report, indent=2) + '\n')
+    integration = json.loads((ROOT / 'checks/integration.json').read_text())
+    assert integration['metadata_audited'] and integration['build_errors'] == 0
+    assert integration['geometry_tests']['passed'] > 0 and integration['geometry_tests']['failed'] == 0
+    for paths in ('source_sha256', 'binary_sha256'):
+        for relative, expected in integration[paths].items():
+            assert sha(ROOT.parent / relative) == expected, 'Rebuild/audit integration: ' + relative
     archive = ROOT / 'Drilling_Reviewed.zip'
     files = sorted(p for p in ROOT.rglob('*') if p.is_file()
                    and '__pycache__' not in p.parts
+                   and not {'obj', 'bin'}.intersection(p.relative_to(ROOT).parts)
                    and p not in (archive, ROOT / 'SHA256SUMS.txt'))
     sums = ROOT / 'SHA256SUMS.txt'
     sums.write_text(''.join(f'{sha(p)}  {p.relative_to(ROOT).as_posix()}\n' for p in files), encoding='utf-8')
