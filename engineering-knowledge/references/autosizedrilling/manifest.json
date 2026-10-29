@@ -1,0 +1,32 @@
+{
+  "source_repository": "https://github.com/MarkMG42/Macro-improvement",
+  "source_commit": "69b28526b022503ec8a1c4951a02ec97a48a8619",
+  "source_path": "autosizedrilling",
+  "captured_on": "2026-10-28",
+  "archive": "autosizedrilling-69b28526b022.zip",
+  "archive_sha256": "45e4413d1263a2901d2088e4fc5a78cfcf0438f2dba1c6d6d1aeb2ecb3c6c158",
+  "files_sha256": {
+    "autosizedrilling/.gitignore": "79810615b4063be5474618fd002df934762fe9ccebb448537ce74ce23b319202",
+    "autosizedrilling/AutoSizeDrilling.dll": "4e00af011529934714d1d3ae42792e12382c1095fcb4b28bd2f54ba780e01623",
+    "autosizedrilling/AutoSizeDrilling.pdb": "fe0a31f694e5f2a7cb6de6b6d52d696ab0fb3c0ae836b4bb8541d875558b4dde",
+    "autosizedrilling/CHANGES.md": "61b1e298e5b1e5a3cbf37b5cdccdf319e60e88482c9cfc91ff2537f62778de96",
+    "autosizedrilling/README.md": "7db28454e962355ef812d68a727791a19789ac94321b3f3b714100ac11f78024",
+    "autosizedrilling/REVIEW.md": "aa056c6d498f9c0a817dff496886f265c1933a4ea7924e8c8ed9ea7d7d066403",
+    "autosizedrilling/SHA256SUMS": "9d2a371681b4cc250daff1bc4d13eeb2af5f772bb43a9ab670882891a6ace94e",
+    "autosizedrilling/SolidWorks.Interop.sldworks.dll": "d6882de288a8a8c328e264f19b8466ad83793daa58a493665ebf88db6943eb51",
+    "autosizedrilling/SolidWorks.Interop.swconst.dll": "bad539f74c6052f9e6bae2756a047373bc1ce511a5dd438079f388e151017ed7",
+    "autosizedrilling/candidate/AutoSizeDrilling.dll": "35c8a2b42d07a1ad6e5019d73b3bd552f26388bed8a6159a116937304680d6a7",
+    "autosizedrilling/candidate/AutoSizeDrilling.pdb": "d1bfd4586bf2bec4cf1a8cb6125b89546aa45521b9df067f34e604feac3efbd1",
+    "autosizedrilling/candidate/README.md": "b764fc8ef6be0531d742697293ebbd156b10ea63d41efda9fc275665d8971a8f",
+    "autosizedrilling/candidate/SHA256SUMS": "ad171a2dac0069a81d9bbe1988daaf52bf41f705b7144e58fcac10835d19cfca",
+    "autosizedrilling/downloads/AutoSizeDrilling-1.1.1.zip": "e2605af0808cb1caf5667c89a31449b27db8ad44f9bc1cc3885d116b045c1b6e",
+    "autosizedrilling/downloads/AutoSizeDrilling-1.1.2.zip": "c59ab688fea1c638a0d1ce6751a04f0f1a97857ceb25bd4bfc8d1a5326da24a1",
+    "autosizedrilling/src/AutoSizeDrilling.csproj": "d20e3cd5dec1805bcaff8dcbb58c646930e69427c9ef32e0a6b89caaacaf94ae",
+    "autosizedrilling/src/DiagnosticLog.cs": "4f83ae93bc8ee6805c95034b2441c4ecda12064391a1ea004169861b79fae56a",
+    "autosizedrilling/src/Geometry.cs": "e2c7f60f9c0861fe847805377172ec787e857d797a9a50e4841b487085583002",
+    "autosizedrilling/src/SolidWorksMacro.cs": "15377602bb9c33293b8f35ee6ed6542b43f167b28afa2bcc39670518a8e1b457",
+    "autosizedrilling/tests/GeometryTests.csproj": "43885bebcc921a0cb448cfe64ab0bdcf32183dcacb67d2b3354289bd0b15387f",
+    "autosizedrilling/tests/Program.cs": "711d7559f0ff1f7ac890cbe40565ecf389e45e55e618850e58e5ba61bcf1474c"
+  },
+  "status": "Exact source snapshot; original binaries preserved; candidate is not native-SolidWorks validated"
+}

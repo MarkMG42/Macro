@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-29",
+  "historical_commit": "82829abf353002d76593c05f49232c421d9a9d15",
+  "retained": [
+    "V16.15",
+    "V16.17",
+    "V16.21"
+  ],
+  "removed_from_current_tree": [
+    "SOLIDWORKS_MERGE_V16_10_RESTORED_SORT.zip",
+    "SOLIDWORKS_MERGE_V16_11_VBA_FORM.zip",
+    "SOLIDWORKS_MERGE_V16_12_VBA_FORM.zip",
+    "SOLIDWORKS_MERGE_V16_13_VBA_FORM.zip",
+    "SOLIDWORKS_MERGE_V16_14_VBA_FORM.zip",
+    "SOLIDWORKS_MERGE_V16_16_VBA_FORM.zip",
+    "SOLIDWORKS_MERGE_V16_18_VBA_FORM.zip",
+    "SOLIDWORKS_MERGE_V16_19_VBA_FORM.zip",
+    "SOLIDWORKS_MERGE_V16_20_VBA_FORM.zip",
+    "SOLIDWORKS_MERGE_V16_22_VBA_FORM.zip",
+    "SOLIDWORKS_MERGE_V16_7_SHEET_PROPERTIES.zip",
+    "SOLIDWORKS_MERGE_V16_9_NATIVE_DIALOGS.zip",
+    "V16",
+    "V16_10",
+    "V16_11",
+    "V16_12",
+    "V16_13",
+    "V16_14",
+    "V16_16",
+    "V16_18",
+    "V16_19",
+    "V16_20",
+    "V16_22",
+    "V16_9"
+  ],
+  "reason": "Failed or lacking complete native/user confirmation; source and investigation remain in Git history, not declared universally broken",
+  "superseded_by_user_clarification": "2026-10-29: restore and move all merger releases to drawingmerger; protected root paths unchanged",
+  "current_removed_release_list": []
+}

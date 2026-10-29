@@ -1,0 +1,83 @@
+# VBA/COM, API и поставка исходников
+
+## C1. Boolean COM и проверка фактического состояния
+
+Задача: ложный FAILED при уже активном листе/документе или успешном API.
+Реализация: [merge_core.vba](../../drawingmerger/V16_21/tools/merge_core.vba), `Require`,
+`FlagValue`, `EnsureSheetActive`, `RequireActive`. Статус: используется в
+подтверждённой V21; отдельный минимальный native COM-тест не сохранён.
+
+VBA True обычно -1, возможное COM-значение +1 при побитовом Not даёт -2,
+тоже истинное. Условие, предназначенное для отрицания истины, могло сработать
+неожиданно. Использовать канонизацию и прямую ветку:
+
+```vb
+Private Sub Require(ByVal condition As Boolean, ByVal message As String)
+    If condition Then Exit Sub
+    Err.Raise vbObjectError + 1600, "MergeDrawings", message
+End Sub
+```
+
+Это иллюстрация приёма; не новое определение кода ошибки релиза. Одновременно
+проверять эффект API (текущий лист, активный путь, число новых листов), не только
+возвращаемое значение. VBA And/Or не обеспечивают short-circuit: проверки Nothing
+и обращения к объекту разделять там, где это требуется.
+
+## C2. Что подтверждают API/grammar отчёты
+
+[api.json](https://github.com/MarkMG42/Macro/blob/82829abf353002d76593c05f49232c421d9a9d15/V16_22/checks/api.json): реальные члены interop32.1.0,
+включая GetDrawingComponent(View), DrawingComponent.Name, View.GetUniqueName,
+CreateDrawViewFromModelView3 и ModelDoc2.IsOpenedReadOnly. Это метаданные предыдущей
+версии, не доказательство поведения SW2025. Текст note в JSON может быть унаследован
+от ранней версии; ориентироваться на список members, код и точный scope проверки.
+Не придумывать EditPaste/SetBaseView/GetReadOnlyState вместо существующих методов.
+
+[grammar.json](https://github.com/MarkMG42/Macro/blob/82829abf353002d76593c05f49232c421d9a9d15/V16_22/checks/grammar.json) — ANTLR4.13.2/grammars-v4 VBA7.1,
+ошибок нет, указан SHA исходного BAS. Нативной Debug → Compile и запуска SW нет.
+ANTLR-инструменты прежнего исследования находились в /tmp, не являются установленной
+зависимостью checkout. Не запускать package_release с новым кодом и старым grammar-
+хешем, не переписывать отчёт вручную ради прохождения проверки.
+
+Официальная справка при новых API: [SolidWorks2025 API Help](https://help.solidworks.com/2025/english/api/sldworksapi/Welcome.htm).
+Для конкретной новой операции найти страницу интерфейса/метода, проверить параметры,
+тип возврата/ограничения и при необходимости метаданные. Наличие метода ещё не
+доказывает корректность работы с разрезами или загруженными ссылками.
+
+## C3. Поставка и Windows UI
+
+[build_release.py](https://github.com/MarkMG42/Macro/blob/82829abf353002d76593c05f49232c421d9a9d15/V16_22/tools/build_release.py) собирает части tools/*.vba:
+TXT UTF-8 BOM/CRLF для вставки, BAS CP1251/CRLF с Attribute VB_Name для импорта.
+[package_release.py](https://github.com/MarkMG42/Macro/blob/82829abf353002d76593c05f49232c421d9a9d15/V16_22/tools/package_release.py) проверяет BAS/TXT,
+хеш грамматики, ограничения длины строк/continuations, уникальность процедур,
+состав/CRC/содержимое ZIP и SHA256. Такие проверки выполнены; это не native compile,
+тест антивирусом или доказательство геометрической корректности.
+
+С V11 UI — native UserForm frmDrawingOrder с FORM_CODE.txt; внешние HTA/процессы
+не нужны. Обычное обновление заменяет стандартный модуль, форма прежняя; убрать
+дубли main. Готового .swp в Git нет: его создаёт пользователь в SW VBA Editor.
+
+Срабатывание Defender обсуждалось, точный детект неизвестен. V16_10/
+[DOWNLOAD_CHECK_RU.md](https://github.com/MarkMG42/Macro/blob/82829abf353002d76593c05f49232c421d9a9d15/V16_10/DOWNLOAD_CHECK_RU.md) содержит сравнение:
+HTA/ActiveX существовали уже в V16.7, нельзя приписывать их добавление V16.8.
+Контроль SHA скачивания не равен антивирусному заключению. Не отключать защиту,
+не маскировать расширения/содержимое ради обхода. Предпочитать прозрачные исходники.
+
+## Минимальное доказательство нового результата
+
+1. Сверить API/реальный код, границы изменения, формат/упаковку; назвать выполненное.
+2. В Windows: Debug → Compile; запуск на сохранённых копиях исходников SW2025.
+3. Проверить main/source ownership, порядок листов, модели/конфигурации, родителей,
+   размеры/штриховки, живые заметки, PDF и режим сохранения/reopen.
+4. Записать только реально полученные свидетельства. При отсутствии Windows/SW
+   оставить native-статус «Не проверено», передать короткий сценарий испытания.
+
+## C4. C#/.NET/VSTA материал
+
+[AutoSizeDrilling](../references/autosizedrilling/README.md) сохраняет оригинал
+VB.NET net48/x64 и восстановленный C#1.1.2 с тем же GUID и main/Execute. Это
+не исходный VB.NET-проект. Deterministic/PathMap и совпадение хешей проверяют
+воспроизводимость, не загрузку VSTA. Проект использует предоставленные interop
+с EmbedInteropTypes=false и Private=false; тесты net8 напрямую подключают Geometry.cs.
+Проверка SystemValue/масштабов и особенности обработанного отказа Execute —
+[dimensions.md](dimensions.md), M1/M4/M5. Не переносить VBA Boolean-правило C1
+механически на C# bool; языковые обёртки различаются.

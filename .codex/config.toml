@@ -1,0 +1,24 @@
+# Codex CLI 0.163.0: роли наследуют модель и права сессии.
+[agents]
+max_concurrent_threads_per_session = 4
+max_depth = 1
+
+[agents.sw_drawings]
+description = "Листы, активация и перенос зависимых видов/разрезов SolidWorks"
+config_file = "../engineering-knowledge/agents/sw_drawings.toml"
+
+[agents.sw_component_notes]
+description = "Компоненты в контексте вида, свойства листов и живые связанные заметки"
+config_file = "../engineering-knowledge/agents/sw_component_notes.toml"
+
+[agents.sw_document_output]
+description = "Сохранение документов, PDF, пакетная обработка и производительность SolidWorks"
+config_file = "../engineering-knowledge/agents/sw_document_output.toml"
+
+[agents.sw_vba_com]
+description = "Особенности SolidWorks VBA/COM, сигнатуры API и поставка Windows-макросов"
+config_file = "../engineering-knowledge/agents/sw_vba_com.toml"
+
+[agents.sw_dimensions]
+description = "Геометрия чертёжного вида, отверстия и автоматическое нанесение размеров SolidWorks"
+config_file = "../engineering-knowledge/agents/sw_dimensions.toml"
