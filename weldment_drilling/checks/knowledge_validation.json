@@ -20,5 +20,5 @@
   "unexpected_findings": [],
   "reason": "Preservation snapshot was created for repository reorganization. Current user explicitly requests edits to weldment_drilling and its knowledge record; immutable baseline is not rewritten to hide differences.",
   "native_solidworks_run": false,
-  "current_build_id": "DRILL_COPY_VIEW_R4_HOLES_LEFT_20261029"
+  "current_build_id": "DRILL_COPY_VIEW_R5_OBJECT_VIEWS_20261029"
 }

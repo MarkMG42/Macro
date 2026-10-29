@@ -129,27 +129,54 @@ class CoreTests(unittest.TestCase):
         self.assertLess(place.index('DrawingViewRotate'),place.index('OrientHolesLeft'))
         self.assertLess(place.index('OrientHolesLeft'),place.index('view.Position = position'))
 
-    def test_snapshot_uses_internal_binary_keys_with_guarded_duplicate(self):
+    def test_snapshot_accepts_repeated_names_without_using_them_as_identity(self):
         code=body('ViewSnapshot')
-        self.assertIn('result.CompareMode = vbBinaryCompare',code)
-        self.assertIn('key = ViewKey(view)',code)
-        self.assertIn('ViewKey = view.GetUniqueName',body('ViewKey'))
-        self.assertLess(code.index('If result.Exists(key) Then'),code.index('result.Add key, Empty'))
-        self.assertIn('If previous Is view Then',code)
-        # Distinct references with the same key must enter an explicit failure branch.
-        self.assertRegex(code,r'Else\s+Fail [^\n]+\n\s+End If\s+Else\s+result.Add')
-        self.assertNotIn('vbTextCompare',code)
+        self.assertIn('Set result = New Collection',code)
+        self.assertIn('If ViewIndex(result, view) = 0 Then',code)
+        self.assertIn('result.Add view',code)
+        self.assertNotIn('Dictionary',code)
+        self.assertNotIn('.Exists',code)
+        identity=body('SameDrawingView')
+        self.assertIn('If first Is second Then',identity)
+        self.assertIn('equality = app.IsSame(first, second)',identity)
+        self.assertNotIn('GetName2',identity)
+        self.assertNotIn('GetUniqueName',identity)
+        self.assertRegex(identity,r'Case swObjectUnsupported[\s\S]*?SameDrawingView = False')
 
-    def test_existing_view_keys_checked_before_registering_or_deleting_delta(self):
+    def test_existing_objects_preserved_before_delta_and_name_free_selection(self):
         code=body('CopySourceView')
-        intact=code.index('For Each key In before.Keys')
-        register=code.index('For Each key In after.Keys')
+        intact=code.index('If OriginalViewsPresent(before, after) = False Then')
+        register=code.index('madeViews.Add candidate')
         self.assertLess(intact,register)
         self.assertIn('pendingPaste = True',code[intact:register])
         self.assertIn('Fail ',code[intact:register])
-        self.assertIn('before.Exists(ViewKey(source))',code)
-        self.assertIn('name = ViewKey(view)',body('TryDeleteView'))
-        self.assertIn('StrComp(ViewKey(selected), ViewKey(view), vbBinaryCompare)',body('SelectDrawingView'))
+        self.assertIn('If ViewIndex(before, candidate) = 0 Then',code)
+        select=body('SelectDrawingView')
+        self.assertIn('Set objects(0) = view',select)
+        self.assertIn('MultiSelect2(objects, False, Nothing)',select)
+        self.assertIn('SameDrawingView(selected, view)',select)
+        self.assertNotIn('SelectByID2',select)
+        self.assertNotIn('ViewKey',SOURCE)
+
+    def test_identity_preflight_reads_twice_before_paste(self):
+        code=body('CheckViewIdentity')
+        self.assertEqual(code.count('= ViewSnapshot()'),2)
+        self.assertIn('first.Count <> second.Count',code)
+        self.assertIn('OriginalViewsPresent(first, second)',code)
+        self.assertIn('OriginalViewsPresent(second, first)',code)
+        self.assertIn('ViewIndex(first, source)',code)
+        self.assertNotIn('Paste',code)
+        self.assertNotIn('DeleteSelection2',code)
+
+    def test_delete_proves_survivors_without_dereferencing_deleted_target(self):
+        code=body('TryDeleteView')
+        self.assertLess(code.index('targetIndex = ViewIndex(before, view)'),code.index('DeleteSelection2'))
+        deleted=code[code.index('DeleteSelection2'):]
+        self.assertIn('remaining.Count <> before.Count - 1',deleted)
+        self.assertIn('If i <> targetIndex Then',deleted)
+        self.assertIn('ViewIndex(remaining, survivor)',deleted)
+        self.assertNotIn('ViewIndex(remaining, view)',deleted)
+        self.assertNotIn('view.Get',deleted)
 
     def test_windows_import_encoding(self):
         self.assertEqual((ROOT/'InsertWeldWithHoles.bas').read_text(encoding='cp1251'),SOURCE)

@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R4_HOLES_LEFT_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R5_OBJECT_VIEWS_20261029"
 Private Const HOLES_LEFT As Boolean = True
 Private Const HOLE_SIDE_TOLERANCE As Double = 0.0001
 Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
@@ -30,12 +30,12 @@ Private currentView As String
 Private currentDirection As Long
 Private logPath As String
 Private pendingPaste As Boolean
+Private unsupportedViewComparisons As Long
 
 Public Sub start()
     Dim source As SldWorks.View, sheet As SldWorks.Sheet
     Dim config As String, message As String, cleanup As String, errorText As String
     Dim bodies As Collection, cursorY As Double, width As Double, height As Double
-    Dim initialViews As Object
     Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle, outside As Long
     On Error GoTo Failed
     Set madeViews = New Collection
@@ -50,6 +50,7 @@ Public Sub start()
     currentView = ""
     currentDirection = 0
     pendingPaste = False
+    unsupportedViewComparisons = 0
     StartLog
     MarkStage "Инициализация"
     Set app = Application.SldWorks
@@ -88,8 +89,7 @@ Public Sub start()
     End If
     MarkStage "Проверка ранее созданных видов"
     CheckPreviousRun sheet
-    MarkStage "Предварительная проверка идентификаторов видов"
-    Set initialViews = ViewSnapshot()
+    CheckViewIdentity source
     props = sheet.GetProperties
     If HasItems(props) = False Then Fail "Лист не вернул размеры."
     If UBound(props) < 6 Then Fail "Неполные свойства листа."
@@ -426,18 +426,69 @@ Private Function ResolvePartBody(ByVal name As String, ByVal config As String) A
     If count <> 1 Then Fail "Неоднозначное тело модели: [" & name & "]; совпадений=" & CStr(count)
 End Function
 
-Private Function ViewKey(ByVal view As SldWorks.View) As String
-    If view Is Nothing Then Fail "Нет вида для чтения идентификатора."
-    ViewKey = view.GetUniqueName
-    If Len(ViewKey) = 0 Then Fail "Пустой внутренний идентификатор вида: [" & view.GetName2 & "]."
+Private Function SameDrawingView(ByVal first As SldWorks.View, ByVal second As SldWorks.View) As Boolean
+    Dim equality As Long
+    If first Is Nothing Then Exit Function
+    If second Is Nothing Then Exit Function
+    If first Is second Then
+        SameDrawingView = True
+        Exit Function
+    End If
+    ' Only compare drawing views from this document, never model/drawing bodies.
+    equality = app.IsSame(first, second)
+    Select Case equality
+        Case swObjectSame
+            SameDrawingView = True
+        Case swObjectNotSame
+            SameDrawingView = False
+        Case swObjectUnsupported
+            unsupportedViewComparisons = unsupportedViewComparisons + 1
+            If unsupportedViewComparisons <= 3 Then WriteLog "IsSame(IView): swObjectUnsupported; совпадение возможно только по VBA Is."
+            ' A false VBA Is is not promoted to equality by names or geometry.
+            ' If an old view cannot be matched after Paste, the subset guard stops.
+            SameDrawingView = False
+        Case Else
+            Fail "Неизвестный результат сравнения объектов видов: " & CStr(equality)
+    End Select
 End Function
 
-Private Function ViewSnapshot() As Object
-    Dim result As Object, sheet As SldWorks.Sheet, views As Variant, view As SldWorks.View, i As Long
-    Dim key As String, previous As SldWorks.View
-    Set result = CreateObject("Scripting.Dictionary")
-    ' Display names are not identity. Never merge case-distinct internal names.
-    result.CompareMode = vbBinaryCompare
+Private Function ViewIndex(ByVal views As Collection, ByVal target As SldWorks.View) As Long
+    Dim i As Long, candidate As SldWorks.View
+    If views Is Nothing Then Fail "Нет снимка видов для сравнения."
+    If target Is Nothing Then Fail "Нет объекта вида для сравнения."
+    For i = 1 To views.Count
+        Set candidate = views(i)
+        If SameDrawingView(candidate, target) Then
+            ViewIndex = i
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Function OriginalViewsPresent(ByVal before As Collection, ByVal after As Collection) As Boolean
+    Dim i As Long, original As SldWorks.View
+    For i = 1 To before.Count
+        Set original = before(i)
+        If ViewIndex(after, original) = 0 Then Exit Function
+    Next i
+    OriginalViewsPresent = True
+End Function
+
+Private Sub CheckViewIdentity(ByVal source As SldWorks.View)
+    Dim first As Collection, second As Collection
+    MarkStage "Предварительная проверка объектов видов"
+    Set first = ViewSnapshot()
+    Set second = ViewSnapshot()
+    If first.Count <> second.Count Then Fail "Изменился список видов при повторном чтении до вставки."
+    If OriginalViewsPresent(first, second) = False Then Fail "Не удалось сопоставить объекты видов при повторном чтении до вставки."
+    If OriginalViewsPresent(second, first) = False Then Fail "Не удалось сопоставить обратный снимок объектов до вставки."
+    If ViewIndex(first, source) = 0 Then Fail "Выбранного объекта вида нет в текущем листе."
+    WriteLog "Повторное чтение объектов видов подтверждено; видов=" & CStr(first.Count)
+End Sub
+
+Private Function ViewSnapshot() As Collection
+    Dim result As Collection, sheet As SldWorks.Sheet, views As Variant, view As SldWorks.View, i As Long
+    Set result = New Collection
     Set sheet = drawing.GetCurrentSheet
     If sheet Is Nothing Then Fail "Нет текущего листа."
     If StrComp(sheet.GetName, sourceSheetName, vbBinaryCompare) <> 0 Then Fail "Активный лист изменился."
@@ -447,18 +498,12 @@ Private Function ViewSnapshot() As Object
             Set view = views(i)
             If view Is Nothing Then Fail "В списке видов пустая ссылка."
             If view.Type <> swDrawingSheet Then
-                key = ViewKey(view)
-                WriteLog "Снимок: индекс=" & CStr(i) & "; тип=" & CStr(view.Type) & "; имя=[" & view.GetName2 & "]; ID=[" & key & "]"
-                If result.Exists(key) Then
-                    Set previous = result.Item(key)
-                    If previous Is view Then
-                        WriteLog "Повторная ссылка на тот же вид пропущена: [" & key & "]"
-                    Else
-                        Fail "Разные ссылки видов имеют один внутренний ID: [" & key & "]. Вставка остановлена до потери учёта."
-                    End If
+                ' Names, including GetUniqueName, may repeat on a single sheet.
+                WriteLog "Снимок: индекс=" & CStr(i) & "; тип=" & CStr(view.Type) & "; имя=[" & view.GetName2 & "]; API-имя=[" & view.GetUniqueName & "]"
+                If ViewIndex(result, view) = 0 Then
+                    result.Add view
                 Else
-                    result.Add key, Empty
-                    Set result.Item(key) = view
+                    WriteLog "Повторная ссылка на тот же объект вида пропущена."
                 End If
             End If
         Next i
@@ -504,21 +549,24 @@ End Sub
 
 Private Sub SelectDrawingView(ByVal view As SldWorks.View)
     Dim manager As SldWorks.SelectionMgr, selected As SldWorks.View
+    Dim objects(0) As Object, count As Long
     If view Is Nothing Then Fail "Нет вида для выбора."
     EnsureSourceSheetActive
     drawingModel.ClearSelection2 True
-    If drawingModel.Extension.SelectByID2(view.GetName2, "DRAWINGVIEW", 0#, 0#, 0#, False, 0, Nothing, 0) = False Then Fail "Не выбран вид: " & view.GetName2
+    Set objects(0) = view
+    count = drawingModel.Extension.MultiSelect2(objects, False, Nothing)
+    WriteLog "Выбор объекта вида: MultiSelect2=" & CStr(count)
     Set manager = drawingModel.SelectionManager
     If manager Is Nothing Then Fail "Нет менеджера выбора чертежа."
     If manager.GetSelectedObjectCount2(-1) <> 1 Then Fail "Выбран не один вид."
     If manager.GetSelectedObjectType3(1, -1) <> swSelDRAWINGVIEWS Then Fail "Выбран объект другого типа."
     Set selected = manager.GetSelectedObject6(1, -1)
     If selected Is Nothing Then Fail "Выбор вида вернул Nothing."
-    If StrComp(ViewKey(selected), ViewKey(view), vbBinaryCompare) <> 0 Then Fail "Выбран другой вид."
+    If SameDrawingView(selected, view) = False Then Fail "Выбран другой объект вида."
 End Sub
 
 Private Function CopySourceView(ByVal source As SldWorks.View) As SldWorks.View
-    Dim before As Object, after As Object, key As Variant, added As Long
+    Dim before As Collection, after As Collection, i As Long, added As Long
     Dim pasted As SldWorks.View, candidate As SldWorks.View
     Dim number As Long, description As String, origin As String, failureStage As String
     Dim actualSheet As SldWorks.Sheet, changedSheet As Boolean
@@ -526,7 +574,7 @@ Private Function CopySourceView(ByVal source As SldWorks.View) As SldWorks.View
     MarkStage "Снимок видов перед копированием"
     EnsureSourceSheetActive
     Set before = ViewSnapshot()
-    If before.Exists(ViewKey(source)) = False Then Fail "Исходного вида нет на текущем листе."
+    If ViewIndex(before, source) = 0 Then Fail "Исходного вида нет на текущем листе."
     MarkStage "Копирование исходного вида"
     SelectDrawingView source
     drawingModel.EditCopy
@@ -557,20 +605,18 @@ RegisterPasted:
     If SameDrawingDocument(app.ActiveDoc) = False Then changedSheet = True
     EnsureSourceSheetActive
     Set after = ViewSnapshot()
-    For Each key In before.Keys
-        If after.Exists(CStr(key)) = False Then
-            pendingPaste = True
-            Fail "После вставки исчез исходный ID вида: [" & CStr(key) & "]. Неизвестные объекты не удаляются автоматически."
-        End If
-    Next key
-    For Each key In after.Keys
-        If before.Exists(CStr(key)) = False Then
-            Set candidate = after(CStr(key))
+    If OriginalViewsPresent(before, after) = False Then
+        pendingPaste = True
+        Fail "После вставки не подтверждены все исходные объекты видов. Неизвестные объекты не удаляются автоматически."
+    End If
+    For i = 1 To after.Count
+        Set candidate = after(i)
+        If ViewIndex(before, candidate) = 0 Then
             madeViews.Add candidate
             added = added + 1
             Set pasted = candidate
         End If
-    Next key
+    Next i
     pendingPaste = changedSheet
     If number <> 0 Then Err.Raise number, origin, "Этап исходной ошибки: " & failureStage & "; " & description
     If CanUsePastedView(added, pendingPaste) = False Then Fail "Вставлено новых видов: " & CStr(added) & "; ожидался один на неизменившемся листе."
@@ -1005,15 +1051,27 @@ Private Sub RemoveCopiedAnnotations(ByVal view As SldWorks.View)
 End Sub
 
 Private Function TryDeleteView(ByVal view As SldWorks.View) As Boolean
-    Dim name As String, remaining As Object
+    Dim before As Collection, remaining As Collection, targetIndex As Long, i As Long
+    Dim survivor As SldWorks.View
     On Error GoTo Failed
     If view Is Nothing Then Exit Function
-    name = ViewKey(view)
     EnsureSourceSheetActive
+    Set before = ViewSnapshot()
+    targetIndex = ViewIndex(before, view)
+    If targetIndex = 0 Then Exit Function
     SelectDrawingView view
     If drawingModel.Extension.DeleteSelection2(swDelete_Absorbed) = False Then Exit Function
     Set remaining = ViewSnapshot()
-    TryDeleteView = (remaining.Exists(name) = False)
+    If remaining.Count <> before.Count - 1 Then Exit Function
+    ' Do not dereference or compare the deleted object's now-invalid COM pointer.
+    ' All OTHER original objects must survive; count then proves only the target left.
+    For i = 1 To before.Count
+        If i <> targetIndex Then
+            Set survivor = before(i)
+            If ViewIndex(remaining, survivor) = 0 Then Exit Function
+        End If
+    Next i
+    TryDeleteView = True
     Exit Function
 Failed:
     WriteLog "Ошибка удаления вида: " & CStr(Err.Number) & ": " & Err.Description
@@ -1131,7 +1189,7 @@ End Sub
 ' Optional native copy/paste smoke test. Use a COPY of the drawing; no Save is called.
 Public Sub TestCopyRoundTrip()
     Dim source As SldWorks.View, copy As SldWorks.View, sheet As SldWorks.Sheet
-    Dim before As Object, after As Object, key As Variant, message As String, cleanup As String
+    Dim before As Collection, after As Collection, message As String, cleanup As String
     Dim icon As VbMsgBoxStyle
     On Error GoTo Failed
     Set madeViews = New Collection
@@ -1142,6 +1200,7 @@ Public Sub TestCopyRoundTrip()
     currentView = ""
     currentDirection = 0
     pendingPaste = False
+    unsupportedViewComparisons = 0
     StartLog
     MarkStage "Тест копирования: инициализация"
     Set app = Application.SldWorks
@@ -1157,15 +1216,14 @@ Public Sub TestCopyRoundTrip()
     If source Is Nothing Then Fail "Нет исходного вида."
     If source.Type <> swDrawingNamedView Then Fail "Для теста выберите обычный вид модели."
     If MsgBox("Тест временно вставит и удалит копию выбранного вида. Чертёж не сохраняется. Продолжить?", vbQuestion + vbYesNo) <> vbYes Then Exit Sub
+    CheckViewIdentity source
     Set before = ViewSnapshot()
     Set copy = CopySourceView(source)
     cleanup = CleanupSince(0)
     If madeViews.Count <> 0 Or pendingPaste Then Fail "Не завершён откат теста. " & cleanup
     Set after = ViewSnapshot()
     If after.Count <> before.Count Then Fail "После теста изменилось число видов."
-    For Each key In before.Keys
-        If after.Exists(CStr(key)) = False Then Fail "После теста отсутствует исходный вид."
-    Next key
+    If OriginalViewsPresent(before, after) = False Then Fail "После теста отсутствует исходный объект вида."
     message = "TestCopyRoundTrip: копирование, вставка, обнаружение и удаление одного вида проверены. Геометрия отверстий этим тестом не проверяется."
     icon = vbInformation
     GoTo Finished
