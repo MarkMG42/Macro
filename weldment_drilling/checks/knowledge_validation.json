@@ -21,7 +21,7 @@
     "Extracted AutoSizeDrilling file differs: autosizedrilling/src/SolidWorksMacro.cs"
   ],
   "unexpected_findings": [],
-  "reason": "Immutable reorganization snapshot predates explicitly requested weldment_drilling work and the new AutoSizeDrilling integration. Only the three related autosizedrilling source/document files are additionally authorized; original/candidate binaries stay unchanged.",
-  "current_build_id": "DRILL_COPY_VIEW_R6_DIMENSIONS_20261029",
+  "reason": "Snapshot predates explicitly requested drilling work and R6 integration. R7 ports dimensions into native VBA; earlier authorized AutoSizeDrilling source extensions remain unchanged, only its related README is updated. Immutable baseline is preserved.",
+  "current_build_id": "DRILL_COPY_VIEW_R7_NATIVE_VBA_20261029",
   "native_solidworks_run": false
 }

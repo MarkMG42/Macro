@@ -1,0 +1,361 @@
+{
+  "build_id": "DRILL_COPY_VIEW_R7_NATIVE_VBA_20261029",
+  "runtime": "SOLIDWORKS VBA only",
+  "source_sha256": {
+    "InsertWeldWithHoles.txt": "2fb7290c4a50dbba1af79d5ec7a7bed1a828872ba9f24084faf5cb6e70cbf7cf",
+    "source/native_dimensions.vba": "2829b6a46e7bfc3a57b331ed7ae426cd449ef7f6165d2d28a77e8d1bc3915f8e",
+    "source/native_dimensions_declarations.vba": "c856b5ee548939932dd4c7e25db09da7183fa516a913db859a072956af9d25db"
+  },
+  "assemblies": [
+    {
+      "label": "provided_interop",
+      "assembly_sha256": "d6882de288a8a8c328e264f19b8466ad83793daa58a493665ebf88db6943eb51",
+      "members": [
+        {
+          "interface": "IView",
+          "member": "get_ProjectedDimensions",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "IView",
+          "member": "set_ProjectedDimensions",
+          "signature_blob_hex": "20010102",
+          "parameter_names": [
+            "Retval"
+          ]
+        },
+        {
+          "interface": "IView",
+          "member": "SelectEntity",
+          "signature_blob_hex": "2002021c02",
+          "parameter_names": [
+            "Entity",
+            "AppendFlag"
+          ]
+        },
+        {
+          "interface": "ICurve",
+          "member": "Evaluate2",
+          "signature_blob_hex": "20021c0d08",
+          "parameter_names": [
+            "Parameter",
+            "NumberOfDerivatives"
+          ]
+        },
+        {
+          "interface": "IEdge",
+          "member": "GetCurveParams3",
+          "signature_blob_hex": "2000129044",
+          "parameter_names": []
+        },
+        {
+          "interface": "IEdge",
+          "member": "GetTwoAdjacentFaces2",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "ICurveParamData",
+          "member": "get_UMinValue",
+          "signature_blob_hex": "20000d",
+          "parameter_names": []
+        },
+        {
+          "interface": "ICurveParamData",
+          "member": "get_UMaxValue",
+          "signature_blob_hex": "20000d",
+          "parameter_names": []
+        },
+        {
+          "interface": "IFace2",
+          "member": "FaceInSurfaceSense",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "IAnnotation",
+          "member": "GetPosition",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "IAnnotation",
+          "member": "Select3",
+          "signature_blob_hex": "20020202128a40",
+          "parameter_names": [
+            "Append",
+            "Data"
+          ]
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "GetDimension2",
+          "signature_blob_hex": "2001126808",
+          "parameter_names": [
+            "Index"
+          ]
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "GetAnnotation",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "get_Type2",
+          "signature_blob_hex": "200008",
+          "parameter_names": []
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "SetText",
+          "signature_blob_hex": "200201080e",
+          "parameter_names": [
+            "WhichText",
+            "Text"
+          ]
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "GetText",
+          "signature_blob_hex": "20010e08",
+          "parameter_names": [
+            "WhichText"
+          ]
+        },
+        {
+          "interface": "IDimension",
+          "member": "GetArcEndCondition",
+          "signature_blob_hex": "20010808",
+          "parameter_names": [
+            "Index"
+          ]
+        },
+        {
+          "interface": "IDimension",
+          "member": "SetArcEndCondition",
+          "signature_blob_hex": "2002080808",
+          "parameter_names": [
+            "Index",
+            "Condition"
+          ]
+        },
+        {
+          "interface": "IDimension",
+          "member": "get_SystemValue",
+          "signature_blob_hex": "20000d",
+          "parameter_names": []
+        },
+        {
+          "interface": "IModelDoc2",
+          "member": "AddHorizontalDimension2",
+          "signature_blob_hex": "20031c0d0d0d",
+          "parameter_names": [
+            "X",
+            "Y",
+            "Z"
+          ]
+        },
+        {
+          "interface": "IModelDoc2",
+          "member": "AddVerticalDimension2",
+          "signature_blob_hex": "20031c0d0d0d",
+          "parameter_names": [
+            "X",
+            "Y",
+            "Z"
+          ]
+        },
+        {
+          "interface": "IModelDoc2",
+          "member": "AddDiameterDimension2",
+          "signature_blob_hex": "20031c0d0d0d",
+          "parameter_names": [
+            "X",
+            "Y",
+            "Z"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "nuget_32_1",
+      "assembly_sha256": "8f535bcd3310cfd878781d1581425a07a278c7d7fad0b73f96f57920c88b9df0",
+      "members": [
+        {
+          "interface": "IView",
+          "member": "get_ProjectedDimensions",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "IView",
+          "member": "set_ProjectedDimensions",
+          "signature_blob_hex": "20010102",
+          "parameter_names": [
+            "Retval"
+          ]
+        },
+        {
+          "interface": "IView",
+          "member": "SelectEntity",
+          "signature_blob_hex": "2002021c02",
+          "parameter_names": [
+            "Entity",
+            "AppendFlag"
+          ]
+        },
+        {
+          "interface": "ICurve",
+          "member": "Evaluate2",
+          "signature_blob_hex": "20021c0d08",
+          "parameter_names": [
+            "Parameter",
+            "NumberOfDerivatives"
+          ]
+        },
+        {
+          "interface": "IEdge",
+          "member": "GetCurveParams3",
+          "signature_blob_hex": "2000129044",
+          "parameter_names": []
+        },
+        {
+          "interface": "IEdge",
+          "member": "GetTwoAdjacentFaces2",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "ICurveParamData",
+          "member": "get_UMinValue",
+          "signature_blob_hex": "20000d",
+          "parameter_names": []
+        },
+        {
+          "interface": "ICurveParamData",
+          "member": "get_UMaxValue",
+          "signature_blob_hex": "20000d",
+          "parameter_names": []
+        },
+        {
+          "interface": "IFace2",
+          "member": "FaceInSurfaceSense",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "IAnnotation",
+          "member": "GetPosition",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "IAnnotation",
+          "member": "Select3",
+          "signature_blob_hex": "20020202128a40",
+          "parameter_names": [
+            "Append",
+            "Data"
+          ]
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "GetDimension2",
+          "signature_blob_hex": "2001126808",
+          "parameter_names": [
+            "Index"
+          ]
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "GetAnnotation",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "get_Type2",
+          "signature_blob_hex": "200008",
+          "parameter_names": []
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "SetText",
+          "signature_blob_hex": "200201080e",
+          "parameter_names": [
+            "WhichText",
+            "Text"
+          ]
+        },
+        {
+          "interface": "IDisplayDimension",
+          "member": "GetText",
+          "signature_blob_hex": "20010e08",
+          "parameter_names": [
+            "WhichText"
+          ]
+        },
+        {
+          "interface": "IDimension",
+          "member": "GetArcEndCondition",
+          "signature_blob_hex": "20010808",
+          "parameter_names": [
+            "Index"
+          ]
+        },
+        {
+          "interface": "IDimension",
+          "member": "SetArcEndCondition",
+          "signature_blob_hex": "2002080808",
+          "parameter_names": [
+            "Index",
+            "Condition"
+          ]
+        },
+        {
+          "interface": "IDimension",
+          "member": "get_SystemValue",
+          "signature_blob_hex": "20000d",
+          "parameter_names": []
+        },
+        {
+          "interface": "IModelDoc2",
+          "member": "AddHorizontalDimension2",
+          "signature_blob_hex": "20031c0d0d0d",
+          "parameter_names": [
+            "X",
+            "Y",
+            "Z"
+          ]
+        },
+        {
+          "interface": "IModelDoc2",
+          "member": "AddVerticalDimension2",
+          "signature_blob_hex": "20031c0d0d0d",
+          "parameter_names": [
+            "X",
+            "Y",
+            "Z"
+          ]
+        },
+        {
+          "interface": "IModelDoc2",
+          "member": "AddDiameterDimension2",
+          "signature_blob_hex": "20031c0d0d0d",
+          "parameter_names": [
+            "X",
+            "Y",
+            "Z"
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata_audited": true,
+  "native_vba_compile": false,
+  "native_solidworks_run": false,
+  "scope": "Member names/signatures only; not VBA typechecking, COM execution or Defender scanning"
+}

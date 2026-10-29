@@ -23,7 +23,7 @@ def expression(text, values):
             text = re.sub(rf'\b{name}\(([^()]*)\)',rf'{name}[\1]',text)
     if re.search(r'[^\w\s.,+*/()\[\]<>=-]',text):
         raise ValueError(text)
-    return eval(text,{'__builtins__':{},'Sqr':math.sqrt,'Abs':abs,'Len':len,
+    return eval(text,{'__builtins__':{},'Sqr':math.sqrt,'Abs':abs,'Len':len,'Cos':math.cos,'Sin':math.sin,'Atn':math.atan,'Int':math.floor,
         'StrComp':lambda a,b,mode:(a.casefold()>b.casefold())-(a.casefold()<b.casefold()),'vbTextCompare':1},values)
 
 def assignment(function,target,values):
@@ -189,27 +189,92 @@ class CoreTests(unittest.TestCase):
         next_y=assignment('PlaceDimensionBox','cursorY',dict(moved=moved,GAP=.015))
         self.assertAlmostEqual((box[1]+dy)-next_y,.015)
 
-    def test_dimension_pass_selects_each_created_view_and_requires_handshake(self):
+    def test_dimension_pass_uses_native_vba_on_each_created_view(self):
         code=body('DimensionAndArrange')
-        self.assertIn('bridge.BuildId',code)
         self.assertIn('For i = 1 To madeViews.Count',code)
         attempt=body('TryDimensionView')
-        self.assertLess(attempt.index('SelectDrawingView view'),attempt.index('bridge.ProcessSelectedView(app, view, targetRight, targetTop)'))
+        self.assertLess(attempt.index('SelectDrawingView view'),attempt.index('NativeDimensionView(view, targetRight, targetTop)'))
         self.assertIn('CDbl(result(0)) <= 0#',attempt)
         self.assertNotIn('CleanupSince',code+attempt)
         self.assertNotIn('TryDeleteView',code+attempt)
         self.assertLess(SOURCE.index('If ProcessBody(source, config, i, cursorY, width)'),SOURCE.index('DimensionAndArrange width, height'))
 
-    def test_strict_engine_reuses_geometry_and_reports_failures_after_rollback(self):
-        engine=(ROOT.parent/'autosizedrilling/src/SolidWorksMacro.cs').read_text()
-        self.assertIn('public double[] RunForIntegration(SldWorks application)',engine)
-        self.assertIn('return RunCore(application, true)',engine)
-        self.assertLess(engine.index('bool rolledBack = Rollback()'),engine.index('if (strict) throw'))
-        self.assertLess(engine.index('bool modeRestored = RestoreViewMode()'),engine.index('if (strict) throw'))
-        self.assertIn('#if !DRILLING_BATCH',engine)
-        bridge=(ROOT/'integration/Bridge.cs').read_text()
-        self.assertIn('new AutoSizeDrill().RunForIntegration(app, targetRight, targetTop)',bridge)
-        self.assertNotIn('GetActiveObject',bridge)
+    def test_no_external_dimension_runtime_or_process_launch(self):
+        code='\n'.join(line.split("'",1)[0] for line in SOURCE.splitlines())
+        for external in ['DIMENSIONS_PROGID','ProcessSelectedView','RegAsm','Shell','CreateProcess','GetActiveObject','RunMacro2','Declare ']:
+            self.assertNotIn(external,code)
+        created=re.findall(r'CreateObject\(([^)]+)\)',code)
+        self.assertTrue(all(value=='"Scripting.Dictionary"' for value in created))
+
+    def test_native_dimension_failure_is_explicit_and_preserves_body_views(self):
+        engine=body('NativeDimensionView')
+        self.assertIn('If selectedHoles.Count = 0 Then Fail',engine)
+        failed=engine[engine.index('Failed:'):]
+        self.assertLess(failed.index('number = Err.Number'),failed.index('NdRollback'))
+        self.assertLess(failed.index('NdRollback'),failed.index('NdRestore'))
+        self.assertIn('Err.Raise number, origin, description & cleanup',failed)
+        self.assertNotIn('TryDeleteView',failed)
+        self.assertNotIn('CleanupSince',failed)
+        self.assertIn('NdRestorePosition(view, position) & NdRestoreMode',body('NdRestore'))
+        self.assertIn('GetSelectedObjectCount2(-1) <> 1',body('NdDeleteDimension'))
+
+    def test_dimensions_registered_before_validation_and_rechecked_after_move(self):
+        linear=body('NdAddLinear')
+        self.assertLess(linear.index('NdRegister display'),linear.index('display.Type2'))
+        self.assertIn('swLinearDimension',linear)
+        self.assertIn('dimension.GetArcEndCondition(i) <> swArcEndConditionCenter',linear)
+        engine=body('NativeDimensionView')
+        self.assertEqual(engine.count('NdValidateAll created, expected, viewScale'),2)
+        moved=engine.index('view.Position = position')
+        self.assertIn('drawingModel.EditRebuild3',engine[moved:])
+        self.assertIn('NdValidateAll created, expected, viewScale',engine[moved:])
+        # Geometry and dimension-anchor boxes must be in the same translated coordinates.
+        self.assertIn('bounds.MinX = bounds.MinX + dx',engine[moved:])
+        self.assertIn('bounds.MinY = bounds.MinY + dy',engine[moved:])
+
+    def test_native_full_circle_rejects_partial_arcs(self):
+        for lo,hi,expected in [(0,2*math.pi,True),(1,1+2*math.pi,True),(0,math.pi,False),(0,2*math.pi-1e-5,False),(0,2*math.pi-5e-7,True)]:
+            self.assertEqual(assignment('NdFullCircle','NdFullCircle',dict(uMin=lo,uMax=hi,ND_PI=math.pi)),expected)
+        self.assertIn('uMax < uMin Or uMax - uMin > 2# * ND_PI',body('NdArcExtrema'))
+
+    def test_native_size_values_are_model_metres_at_all_scales(self):
+        for scale in [1.,.1,.01,2.]:
+            for delta,expected in [(0,True),(0.5e-6,True),(2e-6,False),(-2e-6,False)]:
+                self.assertEqual(assignment('NdMatchesValue','NdMatchesValue',dict(actual=.03+delta,expectedSheet=.03*scale,viewScale=scale,ND_DIAMETER_TOL=1e-6)),expected)
+
+    def test_native_positions_and_diameters_use_distinct_model_tolerances(self):
+        for scale in [1.,.1,.01,2.]:
+            # 1 mm separate centres must remain distinct even at 1:100.
+            self.assertFalse(assignment('NdPositionNear','NdPositionNear',dict(first=.01*scale,second=.011*scale,viewScale=scale,ND_MODEL_TOL=.00005)))
+            self.assertTrue(assignment('NdPositionNear','NdPositionNear',dict(first=.01*scale,second=.01002*scale,viewScale=scale,ND_MODEL_TOL=.00005)))
+            self.assertFalse(assignment('NdDiameterNear','NdDiameterNear',dict(firstRadius=.007*scale,secondRadius=.007002*scale,viewScale=scale,ND_DIAMETER_TOL=1e-6)))
+
+    def test_native_boundary_prefers_extreme_then_length(self):
+        for offset,length,bestOffset,bestLength,expected in [(0,.01,1e-8,1,True),(1e-8,1,0,.01,False),(0,2,0,1,True),(0,1,0,2,False),(0,1,0,1,False)]:
+            self.assertEqual(assignment('NdBetterBoundary','NdBetterBoundary',dict(offset=offset,length=length,bestOffset=bestOffset,bestLength=bestLength)),expected)
+        condition=re.search(r'If (length > .+?) Then',body('NdBoundary'))[1]
+        for scale in [1.,.01,2.]:
+            for cross,offset,expected in [(0,0,True),(.01*scale,0,False),(0,.00002*scale,False)]:
+                self.assertEqual(expression(condition,dict(length=.1*scale,cross=cross,offset=offset,viewScale=scale,ND_MODEL_TOL=.00005,ND_DIAMETER_TOL=1e-6)),expected)
+
+    def test_native_face_on_uses_projected_axis_not_global_z(self):
+        for delta,expected in [((0,0,1),True),((0,0,-1),True),((1,0,0),False),((1e-8,0,1),True),((.01,0,1),False)]:
+            env=dict(center=[2,-3,.5],normalPoint=[2+delta[0],-3+delta[1],.5+delta[2]])
+            for var in ['dx','dy','dz','length']:
+                env[var]=assignment('NdFaceOn',var,env)
+            self.assertEqual(assignment('NdFaceOn','NdFaceOn',env),expected)
+
+    def test_native_arc_points_keep_projected_radius_and_translation(self):
+        for u,wantx,wanty in [(0,12,-3),(math.pi/2,10,-2),(math.pi/4,10+math.sqrt(2),-3+math.sqrt(.5))]:
+            env=dict(center=[10,-3,0],cx=2,cy=0,sx=0,sy=1,u=u)
+            self.assertAlmostEqual(assignment('NdArcPoint','x',env),wantx)
+            self.assertAlmostEqual(assignment('NdArcPoint','y',env),wanty)
+
+    def test_single_importable_module_contains_exact_native_fragments(self):
+        for section,name in [('DECLARATIONS','native_dimensions_declarations.vba'),('ENGINE','native_dimensions.vba')]:
+            fragment=(ROOT/'source'/name).read_text().rstrip()
+            self.assertIn("' BEGIN NATIVE DIMENSIONS "+section+'\n'+fragment+"\n' END NATIVE DIMENSIONS "+section,SOURCE)
+        self.assertLess(SOURCE.index('Private Type NDLine'),SOURCE.index('Public Sub start()'))
 
     def test_windows_import_encoding(self):
         self.assertEqual((ROOT/'InsertWeldWithHoles.bas').read_text(encoding='cp1251'),SOURCE)
