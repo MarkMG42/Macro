@@ -305,10 +305,15 @@ class CoreTests(unittest.TestCase):
         self.assertIn('NdUndoBreak(view, unbrokenWidth)',code)
 
     def test_cut_list_outside_sheet_and_ten_millimetre_view_gap(self):
-        code=body('InsertOutsideCutList')
+        code=body('TryInsertOutsideCutList')
         self.assertIn('x = sheetWidth + SIDE_MARGIN',code)
-        self.assertIn('source.InsertWeldmentTable(False, x, y, 1, config, tableTemplate)',code)
+        self.assertIn('source.InsertWeldmentTable(False, sheetWidth / 2#, sheetHeight / 2#, 1, CStr(candidate), tableTemplate)',code)
+        self.assertIn('AddTableConfiguration candidates, seen, "По умолчанию<Как сварной>"',code)
+        self.assertIn('If madeTable Is Nothing Then',code)
         self.assertIn('If table.RowCount < 2 Then Fail',code)
+        start=SOURCE.split('Public Sub start()',1)[1].split('\nEnd Sub',1)[0]
+        self.assertIn('For i = 1 To bodies.Count',start)
+        self.assertLess(start.index('If TryInsertOutsideCutList'),start.index('For i = 1 To bodies.Count'))
         self.assertEqual(assignment('PlaceDetail','cursorY',dict(outline=[0,.12,.2,.2],GAP=.01)),.11)
         self.assertIn('Private Const GAP As Double = 0.01',SOURCE)
 

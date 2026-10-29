@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R11_TABLE_PATH_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R12_TABLE_RETRY_20261029"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = False
@@ -79,7 +79,7 @@ End Type
 Public Sub start()
     Dim source As SldWorks.View, sheet As SldWorks.Sheet
     Dim config As String, message As String, cleanup As String, errorText As String, prompt As String
-    Dim tableTemplate As String
+    Dim tableTemplate As String, tableWarning As String
     Dim bodies As Collection, cursorY As Double, width As Double, height As Double
     Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle, outside As Long
     On Error GoTo Failed
@@ -157,7 +157,9 @@ Public Sub start()
         GoTo Finished
     End If
     tableTemplate = ResolveTableTemplate()
-    InsertOutsideCutList source, config, width, height, tableTemplate
+    If TryInsertOutsideCutList(source, config, width, height, tableTemplate, tableWarning) = False Then
+        WriteLog "Предупреждение таблицы: " & tableWarning
+    End If
     For i = 1 To bodies.Count
         currentBody = CStr(bodies(i))
         If ProcessBody(source, config, i, cursorY, width) Then completed = completed + 1
@@ -166,6 +168,10 @@ Public Sub start()
     message = "Создано видов: " & CStr(completed) & "; пропущено позиций: " & CStr(skipped.Count) & "."
     If AUTO_DIMENSIONS Then message = message & vbCrLf & "Размеры: обработано видов=" & CStr(dimensionsCompleted) & "; не обработано=" & CStr(dimensionsFailed) & "."
     If AUTO_DIMENSIONS Then message = message & vbCrLf & "Разрывов длинных видов=" & CStr(breaksCompleted) & "; пропущено=" & CStr(breakWarnings.Count) & "."
+    If Len(tableWarning) > 0 Then
+        icon = vbExclamation
+        message = message & vbCrLf & "Таблица списка вырезов не создана: " & tableWarning
+    End If
     If dimensionsOutside > 0 Then message = message & vbCrLf & "Оформление за полями: " & CStr(dimensionsOutside) & ". Требуется компоновка."
     If dimensionWarnings.Count > 0 Then
         icon = vbExclamation
@@ -434,15 +440,49 @@ Private Function ResolveTableTemplate() As String
     Fail "Не найден доступный шаблон .sldwldtbt; таблица не создана."
 End Function
 
-Private Sub InsertOutsideCutList(ByVal source As SldWorks.View, ByVal config As String, _
-                                 ByVal sheetWidth As Double, ByVal sheetHeight As Double, ByVal tableTemplate As String)
+Private Function TryInsertOutsideCutList(ByVal source As SldWorks.View, ByVal config As String, _
+                                         ByVal sheetWidth As Double, ByVal sheetHeight As Double, _
+                                         ByVal tableTemplate As String, ByRef warning As String) As Boolean
     Dim table As SldWorks.TableAnnotation, annotation As SldWorks.Annotation
-    Dim position As Variant, x As Double, y As Double
+    Dim position As Variant, x As Double, y As Double, baseConfig As String
+    Dim candidates As Collection, candidate As Variant, seen As Object
+    Dim errorNumber As Long, errorDescription As String, cleanup As String
+    On Error GoTo Failed
     MarkStage "Вставка таблицы списка вырезов за правой границей листа"
     x = sheetWidth + SIDE_MARGIN
     y = sheetHeight - SIDE_MARGIN
-    Set madeTable = source.InsertWeldmentTable(False, x, y, 1, config, tableTemplate)
-    If madeTable Is Nothing Then Fail "SOLIDWORKS не создал таблицу списка вырезов."
+    Set candidates = New Collection
+    Set seen = CreateObject("Scripting.Dictionary")
+    seen.CompareMode = vbTextCompare
+    AddTableConfiguration candidates, seen, config
+    baseConfig = config
+    If InStr(baseConfig, "<") > 0 Then baseConfig = Left$(baseConfig, InStr(baseConfig, "<") - 1)
+    AddTableConfiguration candidates, seen, baseConfig & "<Как сварной>"
+    AddTableConfiguration candidates, seen, baseConfig
+    ' The original working macro tried these two names on localized documents.
+    AddTableConfiguration candidates, seen, "По умолчанию<Как сварной>"
+    AddTableConfiguration candidates, seen, "По умолчанию"
+    For Each candidate In candidates
+        ' Insert inside the sheet, as in the original macro, then move the annotation.
+        ' Some hosts reject an initial insertion point outside the sheet.
+        On Error Resume Next
+        Err.Clear
+        Set madeTable = source.InsertWeldmentTable(False, sheetWidth / 2#, sheetHeight / 2#, 1, CStr(candidate), tableTemplate)
+        errorNumber = Err.Number
+        errorDescription = Err.Description
+        On Error GoTo Failed
+        If madeTable Is Nothing Then
+            WriteLog "Таблица: конфигурация=[" & CStr(candidate) & "]; результат=Nothing; COM=" & _
+                     CStr(errorNumber) & " " & errorDescription
+        Else
+            WriteLog "Таблица: создана с конфигурацией=[" & CStr(candidate) & "]"
+            Exit For
+        End If
+    Next candidate
+    If madeTable Is Nothing Then
+        warning = "SOLIDWORKS вернул пустой результат для всех конфигураций; проверьте исходный вид, сварную деталь и шаблон."
+        Exit Function
+    End If
     Set table = madeTable
     table.Anchored = False
     Set annotation = table.GetAnnotation
@@ -455,6 +495,19 @@ Private Sub InsertOutsideCutList(ByVal source As SldWorks.View, ByVal config As 
     If CDbl(position(0)) < sheetWidth Then Fail "Таблица осталась на листе."
     If table.RowCount < 2 Then Fail "Таблица списка вырезов не содержит позиций."
     WriteLog "Список вырезов: строк=" & CStr(table.RowCount) & "; X=" & CStr(CDbl(position(0)))
+    TryInsertOutsideCutList = True
+    Exit Function
+Failed:
+    warning = Err.Description
+    cleanup = CleanupTable()
+    If Len(cleanup) > 0 Then warning = warning & " " & cleanup
+End Function
+
+Private Sub AddTableConfiguration(ByVal candidates As Collection, ByVal seen As Object, ByVal name As String)
+    If Len(name) = 0 Then Exit Sub
+    If seen.Exists(name) Then Exit Sub
+    seen.Add name, True
+    candidates.Add name
 End Sub
 
 Private Sub CollectBodies(ByVal feature As SldWorks.Feature, ByVal result As Collection, ByVal subLevel As Boolean)
