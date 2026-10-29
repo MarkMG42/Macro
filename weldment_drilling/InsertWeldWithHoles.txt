@@ -349,6 +349,9 @@ Private Function CreateDetail(ByVal body As SldWorks.Body2, ByVal face As SldWor
                               ByVal modelPath As String, ByVal config As String, ByVal index As Long, ByVal viewName As String) As SldWorks.View
     Dim view As SldWorks.View, singleBody(0) As SldWorks.Body2
     Dim utility As SldWorks.MathUtility, normal As SldWorks.MathVector, v As Variant
+    Dim expectedBodyName As String
+    ' Capture the model identity before drawing rebuilds can replace COM wrappers.
+    expectedBodyName = body.Name
     ActivateModel partModel
     Dim proposedName As String
     proposedName = "__DRILL_" & Format$(Now, "yyyymmdd_hhnnss") & "_" & CStr(index)
@@ -370,7 +373,7 @@ Private Function CreateDetail(ByVal body As SldWorks.Body2, ByVal face As SldWor
     If view.SetDisplayMode4(False, swHIDDEN, False, False, True) = False Then Fail "Не удалось установить отображение вида."
     view.SetDisplayTangentEdges2 swTangentEdgesHidden
     drawingModel.EditRebuild3
-    VerifySingleBody view, body
+    VerifySingleBody view, expectedBodyName, config
     Set utility = app.GetMathUtility
     Set normal = MathVectorOf(face.Normal)
     Set normal = normal.MultiplyTransform(view.ModelToViewTransform)
@@ -448,14 +451,49 @@ Private Sub EnsureUnusedName(ByVal name As String)
     End If
 End Sub
 
-Private Sub VerifySingleBody(ByVal view As SldWorks.View, ByVal expected As SldWorks.Body2)
+Private Sub VerifySingleBody(ByVal view As SldWorks.View, ByVal expectedName As String, ByVal expectedConfig As String)
     Dim bodies As Variant, actual As SldWorks.Body2
+    Dim reference As SldWorks.ModelDoc2, part As SldWorks.PartDoc
+    Dim modelBodies As Variant, modelBody As SldWorks.Body2
+    Dim matches As Long, i As Long, actualName As String
+    ' Body2 objects returned by View.Bodies belong to the drawing context.
+    ' ISldWorks.IsSame is not a cross-context model-body identity test.
+    Set reference = view.ReferencedDocument
+    If reference Is Nothing Then Fail "Не загружена модель созданного вида."
+    If StrComp(reference.GetPathName, partModel.GetPathName, vbTextCompare) <> 0 Then
+        Fail "Созданный вид ссылается на другую модель."
+    End If
+    If StrComp(view.ReferencedConfiguration, expectedConfig, vbTextCompare) <> 0 Then
+        Fail "Конфигурация вида не совпадает с конфигурацией отбора тел."
+    End If
+    If StrComp(partModel.ConfigurationManager.ActiveConfiguration.Name, expectedConfig, vbTextCompare) <> 0 Then
+        Fail "Конфигурация исходной модели изменилась после отбора тел."
+    End If
     bodies = view.Bodies
     If HasItems(bodies) = False Then Fail "Вид не вернул изолированное тело."
     If UBound(bodies) - LBound(bodies) <> 0 Then Fail "В вид попало несколько тел."
     Set actual = bodies(LBound(bodies))
-    If app.IsSame(actual, expected) <> swObjectSame Then Fail "В вид попало другое тело."
+    If actual Is Nothing Then Fail "Вид вернул пустую ссылку на тело."
+    actualName = actual.Name
+    Set part = partModel
+    modelBodies = part.GetBodies2(swAllBodies, False)
+    If HasItems(modelBodies) Then
+        For i = LBound(modelBodies) To UBound(modelBodies)
+            Set modelBody = modelBodies(i)
+            If Not modelBody Is Nothing Then
+                If StrComp(modelBody.Name, expectedName, vbTextCompare) = 0 Then matches = matches + 1
+            End If
+        Next i
+    End If
+    If BodyNameMatches(expectedName, actualName, matches) = False Then
+        Fail "Не подтверждено тело вида. Ожидалось: [" & expectedName & "]; в виде: [" & actualName & _
+             "]; совпадений в модели: " & CStr(matches) & "."
+    End If
 End Sub
+
+Private Function BodyNameMatches(ByVal expectedName As String, ByVal actualName As String, ByVal matches As Long) As Boolean
+    BodyNameMatches = Len(expectedName) > 0 And Len(actualName) > 0 And matches = 1 And StrComp(expectedName, actualName, vbTextCompare) = 0
+End Function
 
 Private Sub CheckPreviousRun(ByVal sheet As SldWorks.Sheet)
     Dim views As Variant, view As SldWorks.View, i As Long

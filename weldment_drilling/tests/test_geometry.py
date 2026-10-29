@@ -18,6 +18,8 @@ def body(name):
 
 def expression(text, values):
     text = text.strip().replace('#', '').replace('^', '**')
+    text = re.sub(r'\bAnd\b', 'and', text)
+    text = re.sub(r'(?<![<>=])=(?!=)', '==', text)
     for name in values:
         if isinstance(values[name], (list, tuple)):
             text = re.sub(rf'\b{name}\(([^()]*)\)', rf'{name}[\1]', text)
@@ -25,7 +27,9 @@ def expression(text, values):
     if re.search(r'[^\w\s.,+*/()\[\]<>=-]', text):
         raise ValueError(text)
     return eval(text, {'__builtins__': {}, 'Array': lambda *v: tuple(v),
-                       'Sqr': math.sqrt, 'Abs': abs}, values)
+                       'Sqr': math.sqrt, 'Abs': abs, 'Len': len,
+                       'StrComp': lambda a, b, mode: (a.casefold() > b.casefold()) - (a.casefold() < b.casefold()),
+                       'vbTextCompare': 1}, values)
 
 
 def assignment(function, target, values):
@@ -127,6 +131,24 @@ class GeometryTests(unittest.TestCase):
         if not path.exists():
             self.skipTest('Run tools/package_release.py first')
         self.assertEqual(path.read_text(encoding='cp1251'), SOURCE)
+
+    def test_drawing_body_name_mapping_requires_unique_identity(self):
+        # Drawing and model COM wrappers can differ: identity is scoped by the
+        # caller to the same document/configuration, then mapped by unique name.
+        cases = [
+            ('Pipe-1', 'Pipe-1', 1, True),
+            ('Pipe-1', 'pipe-1', 1, True),
+            ('Pipe-1', 'Pipe-2', 1, False),
+            ('Pipe-1', 'Pipe-1', 0, False),
+            ('Pipe-1', 'Pipe-1', 2, False),
+            ('', '', 1, False),
+            ('Pipe-1', '', 1, False),
+        ]
+        for expected, actual, matches, accepted in cases:
+            with self.subTest(expected=expected, actual=actual, matches=matches):
+                result = assignment('BodyNameMatches', 'BodyNameMatches',
+                                    dict(expectedName=expected, actualName=actual, matches=matches))
+                self.assertEqual(result, accepted)
 
 
 if __name__ == '__main__':

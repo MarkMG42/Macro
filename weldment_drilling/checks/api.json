@@ -242,6 +242,12 @@
       "exists": true,
       "signature_blob_hex": "20001c",
       "parameter_names": []
+    },
+    {
+      "interface": "IPartDoc",
+      "member": "GetBodies2",
+      "exists": true,
+      "signature": "Object GetBodies2(Int32 BodyType, Boolean VisibleOnly)"
     }
   ],
   "constants": [
@@ -314,6 +320,11 @@
       "enum": "swDeleteSelectionOptions_e",
       "name": "swDelete_Absorbed",
       "value": 2
+    },
+    {
+      "enum": "swBodyType_e",
+      "name": "swAllBodies",
+      "value": -1
     }
   ],
   "unknown_constants": [],
@@ -322,12 +333,14 @@
     "IWeldmentCutListAnnotation lacks GetAnnotation; query the same COM table object as ITableAnnotation and call GetAnnotation there.",
     "IView.SetName2 returns Boolean (signature element type 02).",
     "IModelView.Orientation3 getter/setter accept MathTransform; NameView returns Void; DeleteNamedView returns Boolean.",
-    "Visibility APIs and MathUtility/MathVector members present in 32.1.0; swHIDDEN and swHIDDEN_GREYED enum values included below."
+    "Visibility APIs and MathUtility/MathVector members present in 32.1.0; swHIDDEN and swHIDDEN_GREYED enum values included below.",
+    "View.Bodies and PartDoc bodies can belong to different contexts; map by nonempty unique Body2.Name within the same source document and configuration, not by cross-context IsSame."
   ],
   "limitations": [
     "Official help.solidworks.com request returned HTTP 403. NuGet metadata does not establish behavior on the user version.",
     "COM interface casting, geometry visibility, view orientation and table/balloon association require native SOLIDWORKS tests.",
     "VBA object-property assignment semantics cannot be established by .NET metadata alone.",
     "Visible edge identity does not guarantee complete unoccluded projected circle; GetVisibleEntities2 reports whole topological edges that may be partially visible."
-  ]
+  ],
+  "body_context_mapping_reference": "https://github.com/xarial/codestack/blob/0cde3849a184cdbbface61238ef431a6ebb9d530/solidworks-api/document/drawing/get-view-bodies-mass/SolidWorksMacro.cs"
 }
