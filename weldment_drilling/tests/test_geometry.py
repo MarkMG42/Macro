@@ -100,5 +100,15 @@ class CoreTests(unittest.TestCase):
     def test_windows_import_encoding(self):
         self.assertEqual((ROOT/'InsertWeldWithHoles.bas').read_text(encoding='cp1251'),SOURCE)
 
+    def test_layout_space_classifies_below_sheet_without_changing_scale(self):
+        env=dict(SIDE_MARGIN=.02,BOTTOM_MARGIN=.04,sheetWidth=.42)
+        for width,height,top,expected in [(.2,.05,.1,True),(.2,.05,.03,False),(.2,.05,-.1,False),(.5,.05,.2,False)]:
+            self.assertEqual(assignment('FitsLayout','FitsLayout',dict(env,width=width,height=height,top=top)),expected)
+
+    def test_final_warning_counts_actual_view_outline(self):
+        env=dict(SIDE_MARGIN=.02,BOTTOM_MARGIN=.04,sheetWidth=.42,sheetHeight=.297)
+        for outline,expected in [((.02,.05,.39,.27),True),((.02,-.1,.2,-.05),False),((.02,.04,.5,.1),False)]:
+            self.assertEqual(assignment('OutlineInLayout','OutlineInLayout',dict(env,outline=outline)),expected)
+
 if __name__=='__main__':
     unittest.main()

@@ -2,7 +2,8 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R2_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R3_LAYOUT_20261029"
+Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
 Private Const DETAIL_SCALE As Double = 0.2
 Private Const GAP As Double = 0.015
 Private Const SIDE_MARGIN As Double = 0.02
@@ -31,7 +32,7 @@ Public Sub start()
     Dim source As SldWorks.View, sheet As SldWorks.Sheet
     Dim config As String, message As String, cleanup As String, errorText As String
     Dim bodies As Collection, cursorY As Double, width As Double, height As Double
-    Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle
+    Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle, outside As Long
     On Error GoTo Failed
     Set madeViews = New Collection
     Set skipped = New Collection
@@ -94,7 +95,9 @@ Public Sub start()
         If Len(Dir$(TABLE_TEMPLATE)) = 0 Then Fail "Не найден шаблон таблицы: " & TABLE_TEMPLATE
     End If
     If MsgBox(BUILD_ID & vbCrLf & "Проверить позиций: " & CStr(bodies.Count) & _
-              ". Масштаб 1:" & CStr(1# / DETAIL_SCALE) & ". Продолжить?", vbQuestion + vbYesNo) <> vbYes Then
+              ". Масштаб 1:" & CStr(1# / DETAIL_SCALE) & vbCrLf & _
+              "Размещение за полями листа разрешено: " & CStr(ALLOW_WORKSPACE_LAYOUT) & _
+              ". Перед печатью потребуется компоновка. Продолжить?", vbQuestion + vbYesNo) <> vbYes Then
         message = "Отменено."
         GoTo Finished
     End If
@@ -108,6 +111,15 @@ Public Sub start()
         If ProcessBody(source, config, i, cursorY, width) Then completed = completed + 1
     Next i
     message = "Создано видов: " & CStr(completed) & "; пропущено позиций: " & CStr(skipped.Count) & "."
+    outside = CountOutsideLayout(width, height)
+    If outside > 0 Then
+        icon = vbExclamation
+        message = message & vbCrLf & "За заданными полями листа: " & CStr(outside) & _
+                  ". Выполните компоновку перед печатью/PDF. Масштаб не уменьшался."
+    ElseIf outside < 0 Then
+        icon = vbExclamation
+        message = message & vbCrLf & "Не удалось подсчитать виды за полями; проверьте компоновку вручную."
+    End If
     If skipped.Count > 0 Then
         icon = vbExclamation
         For i = 1 To skipped.Count
@@ -772,8 +784,10 @@ Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, By
         height = outline(3) - outline(1)
     End If
     If width <= EPS Or height <= EPS Then Fail "Пустые габариты вида."
-    If width > sheetWidth - 2# * SIDE_MARGIN Then Fail "Вид шире листа. Уменьшите DETAIL_SCALE."
-    If cursorY - height < BOTTOM_MARGIN Then Fail "Не хватает места под видами. Освободите лист или уменьшите DETAIL_SCALE."
+    If FitsLayout(width, height, cursorY, sheetWidth) = False Then
+        If ALLOW_WORKSPACE_LAYOUT = False Then Fail "Не хватает места в полях листа. Включите ALLOW_WORKSPACE_LAYOUT или освободите лист."
+        WriteLog "Вид сохраняется в рабочей области за полями листа; требуется компоновка перед печатью."
+    End If
     position = ReadPosition(view)
     position(0) = position(0) + SIDE_MARGIN - outline(0)
     position(1) = position(1) + cursorY - outline(3)
@@ -783,6 +797,27 @@ Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, By
     If Abs(outline(0) - SIDE_MARGIN) > 0.0001 Or Abs(outline(3) - cursorY) > 0.0001 Then Fail "SOLIDWORKS не применил положение вида."
     cursorY = outline(1) - GAP
 End Sub
+
+Private Function FitsLayout(ByVal width As Double, ByVal height As Double, ByVal top As Double, ByVal sheetWidth As Double) As Boolean
+    FitsLayout = width <= sheetWidth - 2# * SIDE_MARGIN And top - height >= BOTTOM_MARGIN
+End Function
+
+Private Function OutlineInLayout(ByVal outline As Variant, ByVal sheetWidth As Double, ByVal sheetHeight As Double) As Boolean
+    OutlineInLayout = outline(0) >= SIDE_MARGIN And outline(2) <= sheetWidth - SIDE_MARGIN And outline(1) >= BOTTOM_MARGIN And outline(3) <= sheetHeight - SIDE_MARGIN
+End Function
+
+Private Function CountOutsideLayout(ByVal sheetWidth As Double, ByVal sheetHeight As Double) As Long
+    Dim i As Long, view As SldWorks.View, outline As Variant
+    On Error GoTo Unknown
+    For i = 1 To madeViews.Count
+        Set view = madeViews(i)
+        outline = ReadOutline(view)
+        If OutlineInLayout(outline, sheetWidth, sheetHeight) = False Then CountOutsideLayout = CountOutsideLayout + 1
+    Next i
+    Exit Function
+Unknown:
+    CountOutsideLayout = -1
+End Function
 
 Private Sub AddBalloon(ByVal view As SldWorks.View, ByVal face As SldWorks.Face2)
     Dim entity As SldWorks.Entity, data As SldWorks.SelectData
