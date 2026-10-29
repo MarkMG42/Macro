@@ -199,6 +199,25 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('TryDeleteView',code+attempt)
         self.assertLess(SOURCE.index('If ProcessBody(source, config, i, cursorY, width)'),SOURCE.index('DimensionAndArrange width, height'))
 
+    def test_positions_follow_final_layout_and_use_linked_quantity(self):
+        start=SOURCE.split('Public Sub start()',1)[1].split('\nEnd Sub',1)[0]
+        self.assertLess(start.index('DimensionAndArrange width, height'),start.index('If ADD_BALLOONS And completed > 0 Then AddPositions'))
+        self.assertIn('Private Const ADD_BALLOONS As Boolean = True',SOURCE)
+        self.assertIn('madeBodyNames.Add currentBody',body('ProcessBody'))
+        positions=body('AddPositions')
+        self.assertIn('If madeTable Is Nothing Then',positions)
+        self.assertIn('madeBodyNames.Count <> madeViews.Count',positions)
+        self.assertIn('currentBody = CStr(madeBodyNames(i))',positions)
+        balloon=body('TryAddPosition')
+        self.assertIn('Set data.View = view',balloon)
+        self.assertIn('options.UpperTextContent = swBalloonTextItemNumber',balloon)
+        self.assertIn('options.ShowQuantity = True',balloon)
+        self.assertIn('options.QuantityOverride = False',balloon)
+        self.assertIn('actualOptions.ShowQuantity = False Or actualOptions.QuantityOverride',balloon)
+        self.assertIn('x = CDbl(outline(0)) - BALLOON_LEFT_OFFSET',balloon)
+        self.assertIn('y = (CDbl(outline(1)) + CDbl(outline(3))) / 2#',balloon)
+        self.assertIn('DeleteSelection2(swDelete_Absorbed)',balloon)
+
     def test_no_external_dimension_runtime_or_process_launch(self):
         code='\n'.join(line.split("'",1)[0] for line in SOURCE.splitlines())
         for external in ['DIMENSIONS_PROGID','ProcessSelectedView','RegAsm','Shell','CreateProcess','GetActiveObject','RunMacro2','Declare ']:

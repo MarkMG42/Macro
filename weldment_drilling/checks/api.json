@@ -430,7 +430,7 @@
     "Visible edge identity does not guarantee complete unoccluded projected circle; GetVisibleEntities2 reports whole topological edges that may be partially visible."
   ],
   "body_context_mapping_reference": "https://github.com/xarial/codestack/blob/0cde3849a184cdbbface61238ef431a6ebb9d530/solidworks-api/document/drawing/get-view-bodies-mass/SolidWorksMacro.cs",
-  "current_build_id": "DRILL_COPY_VIEW_R13_BREAK_COORDS_20261029",
+  "current_build_id": "DRILL_COPY_VIEW_R14_BALLOONS_20261029",
   "audit_scope_note": "Member list includes historical metadata checks. Current default flow uses copied drawing views, numeric standard directions and scalar transform data; no ModelView/MathVector/named model views required.",
   "current_native_gaps": [
     "Numeric ShowNamedView2 applied to selected drawing view requires native test; log GetOrientationName readback.",

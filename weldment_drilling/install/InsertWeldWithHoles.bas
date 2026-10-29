@@ -2,10 +2,10 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R13_BREAK_COORDS_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R14_BALLOONS_20261029"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
-Private Const ADD_BALLOONS As Boolean = False
+Private Const ADD_BALLOONS As Boolean = True
 Private Const HOLES_LEFT As Boolean = True
 Private Const HOLE_SIDE_TOLERANCE As Double = 0.0001
 Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
@@ -18,6 +18,7 @@ Private Const BREAK_HOLE_CLEARANCE As Double = 0.01
 Private Const BREAK_END_CLEARANCE As Double = 0.015
 Private Const DIM_BASE_OFFSET As Double = 0.007
 Private Const DIM_LINE_STEP As Double = 0.006
+Private Const BALLOON_LEFT_OFFSET As Double = 0.02
 Private Const SIDE_MARGIN As Double = 0.02
 Private Const BOTTOM_MARGIN As Double = 0.04
 Private Const EPS As Double = 0.0000001
@@ -30,16 +31,20 @@ Private partModel As SldWorks.ModelDoc2
 Private oldConfig As String
 Private sourceSheetName As String
 Private madeViews As Collection
+Private madeBodyNames As Collection
 Private madeTable As SldWorks.WeldmentCutListAnnotation
 Private visited As Object
 Private skipped As Collection
 Private orientationWarnings As Collection
 Private dimensionWarnings As Collection
 Private breakWarnings As Collection
+Private balloonWarnings As Collection
 Private dimensionsCompleted As Long
 Private dimensionsFailed As Long
 Private dimensionsOutside As Long
 Private breaksCompleted As Long
+Private balloonsCompleted As Long
+Private balloonsFailed As Long
 Private currentStage As String
 Private currentBody As String
 Private currentView As String
@@ -86,14 +91,18 @@ Public Sub start()
     Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle, outside As Long
     On Error GoTo Failed
     Set madeViews = New Collection
+    Set madeBodyNames = New Collection
     Set skipped = New Collection
     Set orientationWarnings = New Collection
     Set dimensionWarnings = New Collection
     Set breakWarnings = New Collection
+    Set balloonWarnings = New Collection
     dimensionsCompleted = 0
     dimensionsFailed = 0
     dimensionsOutside = 0
     breaksCompleted = 0
+    balloonsCompleted = 0
+    balloonsFailed = 0
     Set madeTable = Nothing
     Set partModel = Nothing
     Set drawingModel = Nothing
@@ -167,9 +176,11 @@ Public Sub start()
         If ProcessBody(source, config, i, cursorY, width) Then completed = completed + 1
     Next i
     If AUTO_DIMENSIONS And completed > 0 Then DimensionAndArrange width, height
+    If ADD_BALLOONS And completed > 0 Then AddPositions
     message = "Создано видов: " & CStr(completed) & "; пропущено позиций: " & CStr(skipped.Count) & "."
     If AUTO_DIMENSIONS Then message = message & vbCrLf & "Размеры: обработано видов=" & CStr(dimensionsCompleted) & "; не обработано=" & CStr(dimensionsFailed) & "."
     If AUTO_DIMENSIONS Then message = message & vbCrLf & "Разрывов длинных видов=" & CStr(breaksCompleted) & "; пропущено=" & CStr(breakWarnings.Count) & "."
+    If ADD_BALLOONS Then message = message & vbCrLf & "Позиции с количеством: создано=" & CStr(balloonsCompleted) & "; пропущено=" & CStr(balloonsFailed) & "."
     If Len(tableWarning) > 0 Then
         icon = vbExclamation
         message = message & vbCrLf & "Таблица списка вырезов не создана: " & tableWarning
@@ -185,6 +196,12 @@ Public Sub start()
         icon = vbExclamation
         For i = 1 To breakWarnings.Count
             If i <= 3 Then message = message & vbCrLf & CStr(breakWarnings(i))
+        Next i
+    End If
+    If balloonWarnings.Count > 0 Then
+        icon = vbExclamation
+        For i = 1 To balloonWarnings.Count
+            If i <= 3 Then message = message & vbCrLf & CStr(balloonWarnings(i))
         Next i
     End If
     outside = CountOutsideLayout(width, height)
@@ -286,14 +303,9 @@ Private Function ProcessBody(ByVal source As SldWorks.View, ByVal config As Stri
     If face Is Nothing Then Fail "После окончательного перестроения отверстие не подтверждено."
     MarkStage "Размещение по фактическим габаритам"
     PlaceDetail view, cursorY, sheetWidth
-    If ADD_BALLOONS Then
-        Set face = FindVisibleHoleFace(view, holes, area)
-        If face Is Nothing Then Fail "Не найдена грань для позиции после поворота вида."
-        MarkStage "Создание позиции"
-        AddBalloon view, face
-    End If
     MarkStage "Отображение невидимых линий"
     If view.SetDisplayMode4(False, swHIDDEN_GREYED, False, False, True) = False Then Fail "Не удалось включить невидимые линии."
+    madeBodyNames.Add currentBody
     WriteLog "Позиция завершена"
     ProcessBody = True
     Exit Function
@@ -1272,20 +1284,59 @@ Unknown:
     CountOutsideLayout = -1
 End Function
 
-Private Sub AddBalloon(ByVal view As SldWorks.View, ByVal face As SldWorks.Face2)
+Private Sub AddPositions()
+    Dim i As Long, view As SldWorks.View, warning As String
+    On Error GoTo Failed
+    If madeTable Is Nothing Then
+        balloonsFailed = madeViews.Count
+        balloonWarnings.Add "Таблица списка вырезов не создана: связанные позиции и количество пропущены."
+        Exit Sub
+    End If
+    If madeBodyNames.Count <> madeViews.Count Then
+        balloonsFailed = madeViews.Count
+        balloonWarnings.Add "Список тел и видов различается: позиции не добавлены во избежание неверной нумерации."
+        Exit Sub
+    End If
+    For i = 1 To madeViews.Count
+        Set view = madeViews(i)
+        currentView = view.GetName2
+        currentBody = CStr(madeBodyNames(i))
+        currentDirection = 0
+        warning = ""
+        If TryAddPosition(view, warning) Then
+            balloonsCompleted = balloonsCompleted + 1
+        Else
+            balloonsFailed = balloonsFailed + 1
+            balloonWarnings.Add "Вид [" & currentView & "]: позиция не создана; " & warning
+            WriteLog "Позиция пропущена: " & warning
+        End If
+    Next i
+    Exit Sub
+Failed:
+    balloonsFailed = madeViews.Count - balloonsCompleted
+    balloonWarnings.Add "Позиции остановлены на виде " & CStr(i) & ": " & Err.Description
+    WriteLog "Ошибка этапа позиций: " & CStr(Err.Number) & ": " & Err.Description
+End Sub
+
+Private Function TryAddPosition(ByVal view As SldWorks.View, ByRef warning As String) As Boolean
     Dim entity As SldWorks.Entity, data As SldWorks.SelectData
-    Dim options As SldWorks.BalloonOptions, note As SldWorks.Note
+    Dim options As SldWorks.BalloonOptions, actualOptions As SldWorks.BalloonOptions, note As SldWorks.Note
     Dim annotation As SldWorks.Annotation, outline As Variant, position As Variant
+    Dim face As SldWorks.Face2, manager As SldWorks.SelectionMgr
+    Dim holes As Long, area As Double, x As Double, y As Double, number As Long
+    On Error GoTo Failed
+    MarkStage "Создание связанной позиции и количества"
+    Set face = FindVisibleHoleFace(view, holes, area)
+    If face Is Nothing Then Fail "Не найдена видимая грань нужного тела."
     drawingModel.ClearSelection2 True
     Set entity = face
-    Dim manager As SldWorks.SelectionMgr
-    If face Is Nothing Then Fail "Нет грани для позиции."
     Set manager = drawingModel.SelectionManager
     If manager Is Nothing Then Fail "Нет менеджера выбора позиции."
     Set data = manager.CreateSelectData
     If data Is Nothing Then Fail "Не создан контекст выбора позиции."
     Set data.View = view
     If entity.Select4(False, data) = False Then Fail "Не удалось выбрать грань для позиции."
+    If manager.GetSelectedObjectCount2(-1) <> 1 Then Fail "Для позиции выбрана не одна грань."
     Set options = drawingModel.Extension.CreateBalloonOptions
     If options Is Nothing Then Fail "Не созданы параметры позиции."
     options.Style = swBS_None
@@ -1298,10 +1349,40 @@ Private Sub AddBalloon(ByVal view As SldWorks.View, ByVal face As SldWorks.Face2
     If note Is Nothing Then Fail "Не удалось создать позицию списка вырезов."
     Set annotation = note.GetAnnotation
     If annotation Is Nothing Then Fail "Нет аннотации позиции."
+    If note.IsBomBalloon = False Then Fail "Созданная заметка не является позицией спецификации."
+    Set actualOptions = note.GetBalloonOptions
+    If actualOptions Is Nothing Then Fail "Не прочитаны параметры созданной позиции."
+    If actualOptions.ShowQuantity = False Or actualOptions.QuantityOverride Then _
+        Fail "Созданная позиция не связана с количеством списка вырезов."
     outline = ReadOutline(view)
-    If annotation.SetPosition2(outline(0), outline(3) + GAP / 3#, 0#) = False Then Fail "Не установлено положение позиции."
+    x = CDbl(outline(0)) - BALLOON_LEFT_OFFSET
+    y = (CDbl(outline(1)) + CDbl(outline(3))) / 2#
+    If annotation.SetPosition2(x, y, 0#) = False Then Fail "Не установлено положение позиции слева от детали."
+    drawingModel.EditRebuild3
+    position = annotation.GetPosition
+    If HasItems(position) = False Then Fail "Позиция не вернула координаты."
+    If Abs(CDbl(position(0)) - x) > 0.0001 Or Abs(CDbl(position(1)) - y) > 0.0001 Then _
+        Fail "Позиция сместилась после перестроения."
+    If Len(Trim$(note.GetText)) = 0 Then Fail "Позиция не показывает номер из списка вырезов."
+    WriteLog "Позиция: тело=[" & currentBody & "]; текст=[" & note.GetText & "]; X=" & CStr(x) & "; Y=" & CStr(y) & "; количество включено"
     drawingModel.ClearSelection2 True
-End Sub
+    TryAddPosition = True
+    Exit Function
+Failed:
+    number = Err.Number
+    warning = CStr(number) & ": " & Err.Description
+    On Error Resume Next
+    If Not annotation Is Nothing Then
+        drawingModel.ClearSelection2 True
+        If annotation.Select3(False, Nothing) Then
+            If drawingModel.Extension.DeleteSelection2(swDelete_Absorbed) = False Then warning = warning & "; созданную заметку не удалось удалить"
+        Else
+            warning = warning & "; созданную заметку не удалось выбрать для удаления"
+        End If
+    End If
+    drawingModel.ClearSelection2 True
+    On Error GoTo 0
+End Function
 
 Private Sub RemoveCopiedAnnotations(ByVal view As SldWorks.View)
     Dim annotations As Collection, annotation As SldWorks.Annotation, item As Variant

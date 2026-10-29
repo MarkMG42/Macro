@@ -1,8 +1,8 @@
 {
-  "build_id": "DRILL_COPY_VIEW_R13_BREAK_COORDS_20261029",
+  "build_id": "DRILL_COPY_VIEW_R14_BALLOONS_20261029",
   "runtime": "SOLIDWORKS VBA only",
   "source_sha256": {
-    "InsertWeldWithHoles.txt": "9a31d701afdc63c27444f9405ebe1e2d1a28a4c1c4bdd32b62159479956c70c3",
+    "InsertWeldWithHoles.txt": "b49e6d2446f643da9d55cd90a2aab454d8ab738b15189af6f535793877c2a14e",
     "source/native_dimensions.vba": "8d4d76be483e142b48e4405d96c38fc0f9285466fb5f428c8e84f5595be02b80",
     "source/native_dimensions_declarations.vba": "c856b5ee548939932dd4c7e25db09da7183fa516a913db859a072956af9d25db"
   },
@@ -102,6 +102,127 @@
             "Append",
             "Data"
           ]
+        },
+        {
+          "interface": "IEntity",
+          "member": "Select4",
+          "signature_blob_hex": "20020202128a40",
+          "parameter_names": [
+            "Append",
+            "Data"
+          ]
+        },
+        {
+          "interface": "ISelectionMgr",
+          "member": "CreateSelectData",
+          "signature_blob_hex": "2000128a40",
+          "parameter_names": []
+        },
+        {
+          "interface": "ISelectionMgr",
+          "member": "GetSelectedObjectCount2",
+          "signature_blob_hex": "20010808",
+          "parameter_names": [
+            "Mark"
+          ]
+        },
+        {
+          "interface": "ISelectData",
+          "member": "set_View",
+          "signature_blob_hex": "2001011280f4",
+          "parameter_names": [
+            "View"
+          ]
+        },
+        {
+          "interface": "IModelDocExtension",
+          "member": "CreateBalloonOptions",
+          "signature_blob_hex": "20001290d4",
+          "parameter_names": []
+        },
+        {
+          "interface": "IModelDocExtension",
+          "member": "InsertBOMBalloon2",
+          "signature_blob_hex": "20011281181290d4",
+          "parameter_names": [
+            "BalloonOptions"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_UpperTextContent",
+          "signature_blob_hex": "20010108",
+          "parameter_names": [
+            "TextContent"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_ShowQuantity",
+          "signature_blob_hex": "20010102",
+          "parameter_names": [
+            "Flag"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_QuantityPlacement",
+          "signature_blob_hex": "20010108",
+          "parameter_names": [
+            "Type"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_QuantityDenotationText",
+          "signature_blob_hex": "2001010e",
+          "parameter_names": [
+            "Text"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_QuantityOverride",
+          "signature_blob_hex": "20010102",
+          "parameter_names": [
+            "Flag"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "get_ShowQuantity",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "get_QuantityOverride",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "INote",
+          "member": "IsBomBalloon",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "INote",
+          "member": "GetBalloonOptions",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "INote",
+          "member": "GetAnnotation",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "INote",
+          "member": "GetText",
+          "signature_blob_hex": "20000e",
+          "parameter_names": []
         },
         {
           "interface": "IDrawingDoc",
@@ -386,6 +507,127 @@
             "Append",
             "Data"
           ]
+        },
+        {
+          "interface": "IEntity",
+          "member": "Select4",
+          "signature_blob_hex": "20020202128a40",
+          "parameter_names": [
+            "Append",
+            "Data"
+          ]
+        },
+        {
+          "interface": "ISelectionMgr",
+          "member": "CreateSelectData",
+          "signature_blob_hex": "2000128a40",
+          "parameter_names": []
+        },
+        {
+          "interface": "ISelectionMgr",
+          "member": "GetSelectedObjectCount2",
+          "signature_blob_hex": "20010808",
+          "parameter_names": [
+            "Mark"
+          ]
+        },
+        {
+          "interface": "ISelectData",
+          "member": "set_View",
+          "signature_blob_hex": "2001011280f4",
+          "parameter_names": [
+            "View"
+          ]
+        },
+        {
+          "interface": "IModelDocExtension",
+          "member": "CreateBalloonOptions",
+          "signature_blob_hex": "20001290d4",
+          "parameter_names": []
+        },
+        {
+          "interface": "IModelDocExtension",
+          "member": "InsertBOMBalloon2",
+          "signature_blob_hex": "20011281181290d4",
+          "parameter_names": [
+            "BalloonOptions"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_UpperTextContent",
+          "signature_blob_hex": "20010108",
+          "parameter_names": [
+            "TextContent"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_ShowQuantity",
+          "signature_blob_hex": "20010102",
+          "parameter_names": [
+            "Flag"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_QuantityPlacement",
+          "signature_blob_hex": "20010108",
+          "parameter_names": [
+            "Type"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_QuantityDenotationText",
+          "signature_blob_hex": "2001010e",
+          "parameter_names": [
+            "Text"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "set_QuantityOverride",
+          "signature_blob_hex": "20010102",
+          "parameter_names": [
+            "Flag"
+          ]
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "get_ShowQuantity",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "IBalloonOptions",
+          "member": "get_QuantityOverride",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "INote",
+          "member": "IsBomBalloon",
+          "signature_blob_hex": "200002",
+          "parameter_names": []
+        },
+        {
+          "interface": "INote",
+          "member": "GetBalloonOptions",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "INote",
+          "member": "GetAnnotation",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "INote",
+          "member": "GetText",
+          "signature_blob_hex": "20000e",
+          "parameter_names": []
         },
         {
           "interface": "IDrawingDoc",
