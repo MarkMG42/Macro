@@ -152,6 +152,11 @@ class CoreTests(unittest.TestCase):
 
     def test_existing_objects_preserved_before_delta_and_name_free_selection(self):
         code=body('CopySourceView')
+        self.assertLess(code.index('Set pasted = AppendedView(before, after)'),code.index('If OriginalViewsPresent(before, after) = False Then'))
+        fast=body('AppendedView')
+        self.assertIn('after.Count <> before.Count + 1',fast)
+        self.assertIn('SameDrawingView(oldView, currentView) = False',fast)
+        self.assertIn('Set AppendedView = after(after.Count)',fast)
         intact=code.index('If OriginalViewsPresent(before, after) = False Then')
         register=code.index('madeViews.Add candidate')
         self.assertLess(intact,register)
@@ -208,9 +213,11 @@ class CoreTests(unittest.TestCase):
         self.assertIn('If placeLeft = False Then cursorY = box(1) - GAP',code)
         self.assertIn('If placeLeft = False Then cursorY = moved(1) - GAP',body('PlaceDimensionBox'))
         attempt=body('TryDimensionView')
-        self.assertLess(attempt.index('SelectDrawingView view'),attempt.index('NativeDimensionView(view, targetX, targetTop, placeLeft)'))
+        self.assertNotIn('SelectDrawingView view',attempt)
+        self.assertIn('NativeDimensionView(view, targetX, targetTop, placeLeft)',attempt)
         self.assertIn('CDbl(result(0)) <= 0#',attempt)
         native=body('NativeDimensionView')
+        self.assertIn('SelectDrawingView view',native)
         self.assertIn('If placeLeft Then dx = targetX - box(1) Else dx = targetX - box(3)',native)
         self.assertIn('Abs(box(1) - targetX)',native)
         self.assertNotIn('CleanupSince',code+attempt)
@@ -351,6 +358,14 @@ class CoreTests(unittest.TestCase):
         self.assertLess(code.index('Set secondLine = view.InsertBreak3'),code.index('drawing.BreakView'))
         self.assertIn('If UBound(breakLines) - LBound(breakLines) + 1 < 2 Then Fail',code)
         self.assertIn('If HasItems(view.GetBreakLines) Then Fail',body('NdUndoBreak'))
+        self.assertLess(code.index('NdRestoreBreakGap(view, oldGap)'),code.index('If inserted Then NdValidateAll created, expected, viewScale'))
+
+    def test_repeated_dimension_validation_keeps_value_checks_without_success_log(self):
+        single=body('NdValidate')
+        all_values=body('NdValidateAll')
+        self.assertIn('valid = NdMatchesValue(actual, expectedValue, viewScale)',single)
+        self.assertIn('If logSuccess Or valid = False Then',single)
+        self.assertIn('NdValidate display, CDbl(expected(i)), viewScale, False',all_values)
 
     def test_dimension_lines_are_six_millimetres_apart(self):
         self.assertIn('Private Const DIM_BASE_OFFSET As Double = 0.007',SOURCE)

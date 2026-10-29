@@ -64,7 +64,7 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX 
         Set display = drawingModel.AddDiameterDimension2(holes(index).X, bounds.MaxY + DIM_BASE_OFFSET + (i - 1) * DIM_LINE_STEP, 0#)
         NdRegister display, 2# * holes(index).Radius, created, expected
         If display.Type2 <> swDiameterDimension Then Fail "Создан не диаметральный размер."
-        NdValidate display, 2# * holes(index).Radius, viewScale
+        NdValidate display, 2# * holes(index).Radius, viewScale, True
         If group.Count > 1 Then
             prefix = CStr(group.Count) & " X "
             display.SetText swDimensionTextPrefix, prefix
@@ -342,13 +342,22 @@ Failed:
     NdUndoBreak = " ОШИБКА ОТМЕНЫ РАЗРЫВА: " & Err.Description
 End Function
 
+Private Function NdRestoreBreakGap(ByVal view As SldWorks.View, ByVal previousGap As Double) As String
+    On Error GoTo Failed
+    view.BreakLineGap = previousGap
+    If Abs(view.BreakLineGap - previousGap) > 0.000001 Then Fail "SOLIDWORKS не восстановил зазор разрыва."
+    Exit Function
+Failed:
+    NdRestoreBreakGap = " Не восстановлен зазор разрыва: " & Err.Description
+End Function
+
 Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() As NDHole, ByVal holeCount As Long, _
                                     ByRef bounds As NDBounds, ByVal viewScale As Double, _
                                     ByVal created As Collection, ByVal expected As Collection) As Boolean
     Dim plan As Variant, breakLine As SldWorks.BreakLine, secondLine As SldWorks.BreakLine, outline As Variant
     Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
     Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean, gapChanged As Boolean
-    Dim failure As String, rollback As String, firstX As Double, secondX As Double, middleY As Double
+    Dim failure As String, rollback As String, gapError As String, firstX As Double, secondX As Double, middleY As Double
     Dim breakLines As Variant
     plan = NdBreakPlan(holes, holeCount, bounds)
     If IsEmpty(plan) Then
@@ -400,12 +409,12 @@ Failed:
         On Error GoTo 0
     End If
     If inserted Then
-        On Error GoTo 0
         rollback = NdUndoBreak(view, bounds.MaxX - bounds.MinX)
-        If InStr(rollback, "ОШИБКА") > 0 Then Fail "Не удалось отменить ошибочный разрыв вида [" & currentView & "]: " & failure & rollback
-        NdValidateAll created, expected, viewScale
     End If
-    If gapChanged Then view.BreakLineGap = oldGap
+    If gapChanged Then gapError = NdRestoreBreakGap(view, oldGap)
+    If InStr(rollback, "ОШИБКА") > 0 Or Len(gapError) > 0 Then _
+        Fail "Не удалось полностью отменить ошибочный разрыв вида [" & currentView & "]: " & failure & rollback & gapError
+    If inserted Then NdValidateAll created, expected, viewScale
     WriteLog "Разрыв пропущен: " & failure
     breakWarnings.Add "Вид [" & currentView & "]: разрыв пропущен; " & failure
 End Function
@@ -688,18 +697,21 @@ Private Sub NdAddLinear(ByVal view As SldWorks.View, ByVal datum As SldWorks.Edg
             End If
         Next i
     End If
-    NdValidate display, expectedValue, viewScale
+    NdValidate display, expectedValue, viewScale, True
 End Sub
 
-Private Sub NdValidate(ByVal display As SldWorks.DisplayDimension, ByVal expectedValue As Double, ByVal viewScale As Double)
-    Dim dimension As SldWorks.Dimension, actual As Double
+Private Sub NdValidate(ByVal display As SldWorks.DisplayDimension, ByVal expectedValue As Double, _
+                       ByVal viewScale As Double, ByVal logSuccess As Boolean)
+    Dim dimension As SldWorks.Dimension, actual As Double, valid As Boolean
     If display Is Nothing Then Fail "Пустой созданный размер."
     Set dimension = display.GetDimension2(0)
     If dimension Is Nothing Then Fail "Нет значения созданного размера."
     actual = dimension.SystemValue
     If NdFinite(actual) = False Then Fail "Неконечное значение созданного размера."
-    WriteLog "VBA-размер: тип=" & CStr(display.Type2) & "; ожидалось мм=" & CStr(expectedValue / viewScale * 1000#) & "; получено мм=" & CStr(actual * 1000#)
-    If NdMatchesValue(actual, expectedValue, viewScale) = False Then Fail "Значение размера не совпало с геометрией. Возможна привязка к касательной."
+    valid = NdMatchesValue(actual, expectedValue, viewScale)
+    If logSuccess Or valid = False Then _
+        WriteLog "VBA-размер: тип=" & CStr(display.Type2) & "; ожидалось мм=" & CStr(expectedValue / viewScale * 1000#) & "; получено мм=" & CStr(actual * 1000#)
+    If valid = False Then Fail "Значение размера не совпало с геометрией. Возможна привязка к касательной."
 End Sub
 
 Private Sub NdValidateAll(ByVal created As Collection, ByVal expected As Collection, ByVal viewScale As Double)
@@ -707,7 +719,7 @@ Private Sub NdValidateAll(ByVal created As Collection, ByVal expected As Collect
     If created.Count <> expected.Count Then Fail "Нарушен учёт созданных размеров."
     For i = 1 To created.Count
         Set display = created(i)
-        NdValidate display, CDbl(expected(i)), viewScale
+        NdValidate display, CDbl(expected(i)), viewScale, False
     Next i
 End Sub
 
