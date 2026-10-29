@@ -18,6 +18,10 @@ def main():
     module = ROOT / 'InsertWeldWithHoles.bas'
     module.write_bytes(code.replace('\n', '\r\n').encode('cp1251'))
     assert module.read_text(encoding='cp1251') == code
+    install_module = ROOT / 'install' / module.name
+    install_module.parent.mkdir(exist_ok=True)
+    install_module.write_bytes(module.read_bytes())
+    assert install_module.read_bytes() == module.read_bytes()
     grammar = json.loads((ROOT / 'checks/grammar.json').read_text())
     assert not grammar['errors'], 'VBA grammar errors'
     assert grammar['source_sha256'] == sha(source), 'Rerun grammar validation for this source'

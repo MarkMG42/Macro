@@ -1,0 +1,1973 @@
+Attribute VB_Name = "InsertWeldWithHoles"
+Option Explicit
+
+' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R9_FAST_GEOMETRY_20261029"
+Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
+Private Const AUTO_DIMENSIONS As Boolean = True
+Private Const HOLES_LEFT As Boolean = True
+Private Const HOLE_SIDE_TOLERANCE As Double = 0.0001
+Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
+Private Const DETAIL_SCALE As Double = 0.2
+Private Const GAP As Double = 0.015
+Private Const SIDE_MARGIN As Double = 0.02
+Private Const BOTTOM_MARGIN As Double = 0.04
+Private Const EPS As Double = 0.0000001
+Private Const VIEW_PREFIX As String = "DRILL_"
+Private Const TABLE_TEMPLATE As String = ""
+Private app As SldWorks.SldWorks
+Private drawingModel As SldWorks.ModelDoc2
+Private drawing As SldWorks.DrawingDoc
+Private partModel As SldWorks.ModelDoc2
+Private oldConfig As String
+Private sourceSheetName As String
+Private madeViews As Collection
+Private madeTable As SldWorks.WeldmentCutListAnnotation
+Private visited As Object
+Private skipped As Collection
+Private orientationWarnings As Collection
+Private dimensionWarnings As Collection
+Private dimensionsCompleted As Long
+Private dimensionsFailed As Long
+Private dimensionsOutside As Long
+Private currentStage As String
+Private currentBody As String
+Private currentView As String
+Private currentDirection As Long
+Private logPath As String
+Private pendingPaste As Boolean
+Private unsupportedViewComparisons As Long
+
+' BEGIN NATIVE DIMENSIONS DECLARATIONS
+' Pure VBA dimensions, ported from autosizedrilling Geometry/AutoSizeDrill.
+Private Const ND_PI As Double = 3.14159265358979
+Private Const ND_MODEL_TOL As Double = 0.00005
+Private Const ND_DIAMETER_TOL As Double = 0.000001
+Private Type NDLine
+    X1 As Double
+    Y1 As Double
+    X2 As Double
+    Y2 As Double
+    Entity As SldWorks.Edge
+End Type
+Private Type NDHole
+    X As Double
+    Y As Double
+    Radius As Double
+    Entity As SldWorks.Edge
+End Type
+Private Type NDBounds
+    MinX As Double
+    MinY As Double
+    MaxX As Double
+    MaxY As Double
+    LeftIndex As Long
+    RightIndex As Long
+    BottomIndex As Long
+    TopIndex As Long
+End Type
+' END NATIVE DIMENSIONS DECLARATIONS
+
+Public Sub start()
+    Dim source As SldWorks.View, sheet As SldWorks.Sheet
+    Dim config As String, message As String, cleanup As String, errorText As String, prompt As String
+    Dim bodies As Collection, cursorY As Double, width As Double, height As Double
+    Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle, outside As Long
+    On Error GoTo Failed
+    Set madeViews = New Collection
+    Set skipped = New Collection
+    Set orientationWarnings = New Collection
+    Set dimensionWarnings = New Collection
+    dimensionsCompleted = 0
+    dimensionsFailed = 0
+    dimensionsOutside = 0
+    Set madeTable = Nothing
+    Set partModel = Nothing
+    Set drawingModel = Nothing
+    oldConfig = ""
+    sourceSheetName = ""
+    currentBody = ""
+    currentView = ""
+    currentDirection = 0
+    pendingPaste = False
+    unsupportedViewComparisons = 0
+    StartLog
+    MarkStage "Инициализация"
+    Set app = Application.SldWorks
+    If app Is Nothing Then Fail "Нет приложения SOLIDWORKS."
+    Set drawingModel = app.ActiveDoc
+    If drawingModel Is Nothing Then Fail "Откройте чертёж рамы."
+    If drawingModel.GetType <> swDocDRAWING Then Fail "Активный документ должен быть чертежом."
+    Set drawing = drawingModel
+    Set sheet = drawing.GetCurrentSheet
+    If sheet Is Nothing Then Fail "Нет текущего листа."
+    sourceSheetName = sheet.GetName
+    Set source = SourceView()
+    If source Is Nothing Then Fail "Нет исходного вида."
+    If source.Type <> swDrawingNamedView Then Fail "Выберите обычный вид модели."
+    MarkStage "Загрузка ссылки на деталь"
+    Set partModel = source.ReferencedDocument
+    If partModel Is Nothing Then Fail "Загрузите деталь исходного вида."
+    If partModel.GetType <> swDocPART Then Fail "Исходный вид должен ссылаться на многотельную деталь."
+    If Len(partModel.GetPathName) = 0 Then Fail "Сначала сохраните деталь."
+    config = source.ReferencedConfiguration
+    oldConfig = ActivePartConfiguration()
+    If StrComp(oldConfig, config, vbTextCompare) <> 0 Then
+        MarkStage "Включение конфигурации исходного вида"
+        If partModel.ShowConfiguration2(config) = False Then Fail "Не включена конфигурация: " & config
+    End If
+    ' Never require partModel.ActiveView: a referenced part need not have a window.
+    Set bodies = New Collection
+    Set visited = CreateObject("Scripting.Dictionary")
+    MarkStage "Обновление списка вырезов"
+    UpdateCutList
+    MarkStage "Отбор позиций с круглыми внутренними контурами"
+    CollectBodies partModel.FirstFeature, bodies, False
+    If bodies.Count = 0 Then
+        message = "В списке вырезов нет тел с круглыми внутренними контурами на плоских гранях."
+        GoTo Finished
+    End If
+    MarkStage "Проверка ранее созданных видов"
+    CheckPreviousRun sheet
+    CheckViewIdentity source
+    props = sheet.GetProperties
+    If HasItems(props) = False Then Fail "Лист не вернул размеры."
+    If UBound(props) < 6 Then Fail "Неполные свойства листа."
+    width = CDbl(props(5))
+    height = CDbl(props(6))
+    If width <= 2# * SIDE_MARGIN Or height <= BOTTOM_MARGIN Then Fail "Неверные размеры листа."
+    MarkStage "Начало компоновки в правом верхнем углу листа"
+    cursorY = height - SIDE_MARGIN
+    If Len(TABLE_TEMPLATE) > 0 Then
+        If Len(Dir$(TABLE_TEMPLATE)) = 0 Then Fail "Не найден шаблон таблицы: " & TABLE_TEMPLATE
+    End If
+    If MsgBox(BUILD_ID & vbCrLf & "Проверить позиций: " & CStr(bodies.Count) & _
+              ". Масштаб 1:" & CStr(1# / DETAIL_SCALE) & vbCrLf & _
+              "Размещение за полями листа разрешено: " & CStr(ALLOW_WORKSPACE_LAYOUT) & _
+              ". Перед печатью потребуется компоновка. Продолжить?", vbQuestion + vbYesNo) <> vbYes Then
+        message = "Отменено."
+        GoTo Finished
+    End If
+    If Len(TABLE_TEMPLATE) > 0 Then
+        MarkStage "Вставка таблицы списка вырезов"
+        Set madeTable = source.InsertWeldmentTable(False, SIDE_MARGIN, height - SIDE_MARGIN, 1, config, TABLE_TEMPLATE)
+        If madeTable Is Nothing Then Fail "Не удалось вставить таблицу."
+    End If
+    For i = 1 To bodies.Count
+        currentBody = CStr(bodies(i))
+        If ProcessBody(source, config, i, cursorY, width) Then completed = completed + 1
+    Next i
+    If AUTO_DIMENSIONS And completed > 0 Then DimensionAndArrange width, height
+    message = "Создано видов: " & CStr(completed) & "; пропущено позиций: " & CStr(skipped.Count) & "."
+    If AUTO_DIMENSIONS Then message = message & vbCrLf & "Размеры: обработано видов=" & CStr(dimensionsCompleted) & "; не обработано=" & CStr(dimensionsFailed) & "."
+    If dimensionsOutside > 0 Then message = message & vbCrLf & "Оформление за полями: " & CStr(dimensionsOutside) & ". Требуется компоновка."
+    If dimensionWarnings.Count > 0 Then
+        icon = vbExclamation
+        For i = 1 To dimensionWarnings.Count
+            If i <= 3 Then message = message & vbCrLf & CStr(dimensionWarnings(i))
+        Next i
+    End If
+    outside = CountOutsideLayout(width, height)
+    If outside > 0 Then
+        icon = vbExclamation
+        message = message & vbCrLf & "За заданными полями листа: " & CStr(outside) & _
+                  ". Выполните компоновку перед печатью/PDF. Масштаб не уменьшался."
+    ElseIf outside < 0 Then
+        icon = vbExclamation
+        message = message & vbCrLf & "Не удалось подсчитать виды за полями; проверьте компоновку вручную."
+    End If
+    If skipped.Count > 0 Then
+        icon = vbExclamation
+        For i = 1 To skipped.Count
+            If i <= 3 Then message = message & vbCrLf & CStr(skipped(i))
+        Next i
+    End If
+    If orientationWarnings.Count > 0 Then
+        icon = vbExclamation
+        message = message & vbCrLf & "Не удалось ориентировать отверстия влево: " & CStr(orientationWarnings.Count) & ". Эти виды сохранены без разворота; проверьте вручную."
+        For i = 1 To orientationWarnings.Count
+            If i <= 3 Then message = message & vbCrLf & CStr(orientationWarnings(i))
+        Next i
+    End If
+    If completed = 0 Then
+        cleanup = CleanupTable()
+        If Len(cleanup) > 0 Then message = message & vbCrLf & cleanup
+    End If
+    message = message & vbCrLf & "Документы не сохранены. Проверьте результат перед сохранением."
+    GoTo Finished
+Failed:
+    errorText = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog errorText
+    cleanup = CleanupSince(0)
+    message = "Операция остановлена: " & errorText & vbCrLf & cleanup
+    cleanup = CleanupTable()
+    If Len(cleanup) > 0 Then message = message & vbCrLf & cleanup
+    If pendingPaste Then message = message & vbCrLf & "Вставка могла создать неучтённые виды. Проверьте лист вручную; продолжение остановлено."
+    icon = vbExclamation
+Finished:
+    cleanup = RestoreConfiguration()
+    If Len(cleanup) > 0 Then message = message & vbCrLf & cleanup
+    cleanup = RestoreDrawingContext()
+    If Len(cleanup) > 0 Then message = message & vbCrLf & cleanup
+    On Error Resume Next
+    If Not drawingModel Is Nothing Then
+        drawingModel.ClearSelection2 True
+        drawingModel.GraphicsRedraw2
+    End If
+    On Error GoTo 0
+    If Len(logPath) > 0 Then message = message & vbCrLf & "Журнал: " & logPath
+    If icon = 0 Then icon = vbInformation
+    WriteLog "Итог: " & Replace(message, vbCrLf, " | ")
+    prompt = BUILD_ID & vbCrLf & message
+    If Len(prompt) > 950 Then prompt = Left$(prompt, 700) & vbCrLf & "Полный отчёт в журнале: " & logPath
+    MsgBox prompt, icon, "Сверловка"
+End Sub
+
+Private Function ProcessBody(ByVal source As SldWorks.View, ByVal config As String, ByVal index As Long, _
+                             ByRef cursorY As Double, ByVal sheetWidth As Double) As Boolean
+    Dim view As SldWorks.View, face As SldWorks.Face2, directions As Variant
+    Dim beforeCount As Long, previousY As Double, holes As Long, bestHoles As Long
+    Dim bestDirection As Long, area As Double, bestArea As Double, i As Long
+    Dim lastDirectionPassed As Boolean
+    Dim errorText As String, cleanup As String, directionError As String, directionErrors As String
+    beforeCount = madeViews.Count
+    previousY = cursorY
+    currentView = ""
+    currentDirection = 0
+    On Error GoTo Failed
+    Set view = CopySourceView(source)
+    currentView = view.GetName2
+    MarkStage "Имя нового вида"
+    If view.SetName2(VIEW_PREFIX & sourceSheetName & "_" & Format$(index, "000")) = False Then Fail "Не удалось присвоить имя виду."
+    currentView = view.GetName2
+    RemoveCopiedAnnotations view
+    directions = Array(swFrontView, swBackView, swLeftView, swRightView, swTopView, swBottomView)
+    For i = LBound(directions) To UBound(directions)
+        currentDirection = CLng(directions(i))
+        If ScoreDirection(view, config, holes, area, directionError) Then
+            lastDirectionPassed = True
+            If BetterCandidate(holes, area, bestHoles, bestArea) Then
+                bestDirection = currentDirection
+                bestHoles = holes
+                bestArea = area
+            End If
+        Else
+            lastDirectionPassed = False
+            directionErrors = directionErrors & vbCrLf & directionError
+        End If
+    Next i
+    If bestDirection = 0 Then Fail "Не найдено направление с видимым круглым отверстием. Проверены шесть стандартных направлений; наклонённые отверстия требуют отдельного вида." & directionErrors
+    If bestDirection <> currentDirection Or lastDirectionPassed = False Then
+        currentDirection = bestDirection
+        ApplyDirection view, config, bestDirection
+    End If
+    ' Reacquire drawing-context faces after the FINAL rebuild; never retain stale model faces.
+    Set face = FindVisibleHoleFace(view, holes, area)
+    If face Is Nothing Then Fail "После окончательного перестроения отверстие не подтверждено."
+    MarkStage "Размещение по фактическим габаритам"
+    PlaceDetail view, cursorY, sheetWidth
+    If Len(TABLE_TEMPLATE) > 0 Then
+        Set face = FindVisibleHoleFace(view, holes, area)
+        If face Is Nothing Then Fail "Не найдена грань для позиции после поворота вида."
+        MarkStage "Создание позиции"
+        AddBalloon view, face
+    End If
+    MarkStage "Отображение невидимых линий"
+    If view.SetDisplayMode4(False, swHIDDEN_GREYED, False, False, True) = False Then Fail "Не удалось включить невидимые линии."
+    WriteLog "Позиция завершена"
+    ProcessBody = True
+    Exit Function
+Failed:
+    errorText = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog errorText
+    cleanup = CleanupSince(beforeCount)
+    WriteLog cleanup
+    cursorY = previousY
+    skipped.Add errorText
+    If CanContinueAfterFailure(pendingPaste, madeViews.Count, beforeCount) = False Then
+        Fail "Продолжение небезопасно: незавершённый учёт вставки или не удалённый вид. " & errorText & " " & cleanup
+    End If
+End Function
+
+Private Function CanContinueAfterFailure(ByVal unknownPaste As Boolean, ByVal remaining As Long, ByVal completed As Long) As Boolean
+    CanContinueAfterFailure = Not unknownPaste And remaining = completed
+End Function
+
+Private Function CanUsePastedView(ByVal added As Long, ByVal unknownPaste As Boolean) As Boolean
+    CanUsePastedView = added = 1 And Not unknownPaste
+End Function
+
+Private Function ScoreDirection(ByVal view As SldWorks.View, ByVal config As String, ByRef holes As Long, _
+                                ByRef area As Double, ByRef errorText As String) As Boolean
+    Dim face As SldWorks.Face2
+    On Error GoTo Failed
+    holes = 0
+    area = 0#
+    errorText = ""
+    ApplyDirection view, config, currentDirection
+    Set face = FindVisibleHoleFace(view, holes, area)
+    WriteLog "Кандидат: отверстий=" & CStr(holes) & "; площадь=" & CStr(area)
+    ScoreDirection = True
+    Exit Function
+Failed:
+    errorText = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog errorText
+End Function
+
+Private Sub Fail(ByVal text As String)
+    Err.Raise vbObjectError + 2101, "InsertWeldWithHoles", text
+End Sub
+
+Private Function ActivePartConfiguration() As String
+    Dim manager As SldWorks.ConfigurationManager, config As SldWorks.Configuration
+    If partModel Is Nothing Then Fail "Нет исходной детали."
+    Set manager = partModel.ConfigurationManager
+    If manager Is Nothing Then Fail "Нет менеджера конфигураций детали."
+    Set config = manager.ActiveConfiguration
+    If config Is Nothing Then Fail "Нет активной конфигурации детали."
+    ActivePartConfiguration = config.Name
+End Function
+
+Private Function HasItems(ByVal values As Variant) As Boolean
+    On Error GoTo EmptyArray
+    If IsArray(values) Then HasItems = (UBound(values) >= LBound(values))
+EmptyArray:
+End Function
+
+Private Function SourceView() As SldWorks.View
+    Dim manager As SldWorks.SelectionMgr, candidate As SldWorks.View
+    Dim first As SldWorks.View, count As Long
+    Set manager = drawingModel.SelectionManager
+    If manager Is Nothing Then Fail "Нет менеджера выбора."
+    count = manager.GetSelectedObjectCount2(-1)
+    If count > 0 Then
+        If count <> 1 Then Fail "Выберите один исходный вид рамы."
+        If manager.GetSelectedObjectType3(1, -1) <> swSelDRAWINGVIEWS Then Fail "Выберите именно вид рамы."
+        Set SourceView = manager.GetSelectedObject6(1, -1)
+    Else
+        Set first = drawing.GetFirstView
+        If first Is Nothing Then Fail "Нет текущего листового вида."
+        Set candidate = first.GetNextView
+        If candidate Is Nothing Then Fail "На текущем листе нет видов модели."
+        Set first = candidate.GetNextView
+        If Not first Is Nothing Then Fail "На листе несколько видов. Выберите исходный вид рамы."
+        Set SourceView = candidate
+    End If
+End Function
+
+Private Sub UpdateCutList()
+    Dim feature As SldWorks.Feature, folder As SldWorks.BodyFolder
+    Set feature = partModel.FirstFeature
+    Do While Not feature Is Nothing
+        If feature.GetTypeName2 = "SolidBodyFolder" Then
+            Set folder = feature.GetSpecificFeature2
+            If Not folder Is Nothing Then
+                If folder.UpdateCutList() = False Then Fail "Не удалось обновить список вырезов."
+            End If
+        End If
+        Set feature = feature.GetNextFeature
+    Loop
+End Sub
+
+Private Sub CollectBodies(ByVal feature As SldWorks.Feature, ByVal result As Collection, ByVal subLevel As Boolean)
+    Dim folder As SldWorks.BodyFolder, values As Variant
+    Dim body As SldWorks.Body2, face As SldWorks.Face2, i As Long
+    Do While Not feature Is Nothing
+        If feature.GetTypeName2 = "CutListFolder" Then
+            If visited.Exists(feature.Name) = False Then
+                visited.Add feature.Name, True
+                Set folder = feature.GetSpecificFeature2
+                If Not folder Is Nothing Then
+                    values = folder.GetBodies
+                    If HasItems(values) Then
+                        For i = LBound(values) To UBound(values)
+                            Set body = values(i)
+                            If Not body Is Nothing Then
+                                Set face = BestHoleFace(body)
+                                If Not face Is Nothing Then
+                                    result.Add body.Name
+                                    Exit For ' One representative per cut-list item, not per instance.
+                                End If
+                            End If
+                        Next i
+                    End If
+                End If
+            End If
+        Else
+            CollectBodies feature.GetFirstSubFeature, result, True
+        End If
+        If subLevel Then
+            Set feature = feature.GetNextSubFeature
+        Else
+            Set feature = feature.GetNextFeature
+        End If
+    Loop
+End Sub
+
+Private Function BestHoleFace(ByVal body As SldWorks.Body2) As SldWorks.Face2
+    Dim face As SldWorks.Face2, surface As SldWorks.Surface
+    Dim holeLoop As SldWorks.Loop2, count As Long, bestCount As Long, area As Double
+    Set face = body.GetFirstFace
+    Do While Not face Is Nothing
+        Set surface = face.GetSurface
+        If Not surface Is Nothing Then
+        If surface.IsPlane Then
+            count = 0
+            Set holeLoop = face.GetFirstLoop
+            Do While Not holeLoop Is Nothing
+                If IsRoundOpening(holeLoop) Then count = count + 1
+                Set holeLoop = holeLoop.GetNext
+            Loop
+            If count > 0 Then
+                If count > bestCount Or (count = bestCount And face.GetArea > area) Then
+                    bestCount = count
+                    area = face.GetArea
+                    Set BestHoleFace = face
+                End If
+            End If
+        End If
+        End If
+        Set face = face.GetNextFace
+    Loop
+End Function
+
+Private Function IsRoundOpening(ByVal holeLoop As SldWorks.Loop2) As Boolean
+    Dim edges As Variant, edge As SldWorks.Edge, curve As SldWorks.Curve
+    Dim circleData As Variant, first As Variant, i As Long, k As Long, dot As Double
+    If holeLoop Is Nothing Then Exit Function
+    If holeLoop.IsOuter Then Exit Function
+    edges = holeLoop.GetEdges
+    If HasItems(edges) = False Then Exit Function
+    For i = LBound(edges) To UBound(edges)
+        Set edge = edges(i)
+        If edge Is Nothing Then Exit Function
+        Set curve = edge.GetCurve
+        If curve Is Nothing Then Exit Function
+        If curve.IsCircle = False Then Exit Function
+        circleData = curve.CircleParams
+        If HasItems(circleData) = False Then Exit Function
+        If UBound(circleData) < 6 Then Exit Function
+        If circleData(6) <= EPS Then Exit Function
+        If i = LBound(edges) Then
+            first = circleData
+        Else
+            For k = 0 To 2
+                If Abs(circleData(k) - first(k)) > EPS Then Exit Function
+            Next k
+            If Abs(circleData(6) - first(6)) > EPS Then Exit Function
+            dot = circleData(3) * first(3) + circleData(4) * first(4) + circleData(5) * first(5)
+            If Abs(Abs(dot) - 1#) > EPS Then Exit Function
+        End If
+    Next i
+    ' A closed inner BREP holeLoop made of arcs of the same circleData is a circular opening.
+    ' Includes tube bores and countersinks; it is not proof of a machining operation.
+    IsRoundOpening = True
+End Function
+
+Private Function ResolvePartBody(ByVal name As String, ByVal config As String) As SldWorks.Body2
+    Dim part As SldWorks.PartDoc, values As Variant, body As SldWorks.Body2, i As Long, count As Long
+    If StrComp(ActivePartConfiguration(), config, vbTextCompare) <> 0 Then Fail "Изменилась конфигурация отбора тел."
+    Set part = partModel
+    values = part.GetBodies2(swAllBodies, False)
+    If HasItems(values) Then
+        For i = LBound(values) To UBound(values)
+            Set body = values(i)
+            If Not body Is Nothing Then
+                If StrComp(body.Name, name, vbTextCompare) = 0 Then
+                    count = count + 1
+                    Set ResolvePartBody = body
+                End If
+            End If
+        Next i
+    End If
+    If count <> 1 Then Fail "Неоднозначное тело модели: [" & name & "]; совпадений=" & CStr(count)
+End Function
+
+Private Function SameDrawingView(ByVal first As SldWorks.View, ByVal second As SldWorks.View) As Boolean
+    Dim equality As Long
+    If first Is Nothing Then Exit Function
+    If second Is Nothing Then Exit Function
+    If first Is second Then
+        SameDrawingView = True
+        Exit Function
+    End If
+    ' Only compare drawing views from this document, never model/drawing bodies.
+    equality = app.IsSame(first, second)
+    Select Case equality
+        Case swObjectSame
+            SameDrawingView = True
+        Case swObjectNotSame
+            SameDrawingView = False
+        Case swObjectUnsupported
+            unsupportedViewComparisons = unsupportedViewComparisons + 1
+            If unsupportedViewComparisons <= 3 Then WriteLog "IsSame(IView): swObjectUnsupported; совпадение возможно только по VBA Is."
+            ' A false VBA Is is not promoted to equality by names or geometry.
+            ' If an old view cannot be matched after Paste, the subset guard stops.
+            SameDrawingView = False
+        Case Else
+            Fail "Неизвестный результат сравнения объектов видов: " & CStr(equality)
+    End Select
+End Function
+
+Private Function ViewIndex(ByVal views As Collection, ByVal target As SldWorks.View) As Long
+    Dim i As Long, candidate As SldWorks.View
+    If views Is Nothing Then Fail "Нет снимка видов для сравнения."
+    If target Is Nothing Then Fail "Нет объекта вида для сравнения."
+    For i = 1 To views.Count
+        Set candidate = views(i)
+        If SameDrawingView(candidate, target) Then
+            ViewIndex = i
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Function OriginalViewsPresent(ByVal before As Collection, ByVal after As Collection) As Boolean
+    Dim i As Long, original As SldWorks.View
+    For i = 1 To before.Count
+        Set original = before(i)
+        If ViewIndex(after, original) = 0 Then Exit Function
+    Next i
+    OriginalViewsPresent = True
+End Function
+
+Private Sub CheckViewIdentity(ByVal source As SldWorks.View)
+    Dim first As Collection, second As Collection
+    MarkStage "Предварительная проверка объектов видов"
+    Set first = ViewSnapshot()
+    Set second = ViewSnapshot()
+    If first.Count <> second.Count Then Fail "Изменился список видов при повторном чтении до вставки."
+    If OriginalViewsPresent(first, second) = False Then Fail "Не удалось сопоставить объекты видов при повторном чтении до вставки."
+    If OriginalViewsPresent(second, first) = False Then Fail "Не удалось сопоставить обратный снимок объектов до вставки."
+    If ViewIndex(first, source) = 0 Then Fail "Выбранного объекта вида нет в текущем листе."
+    WriteLog "Повторное чтение объектов видов подтверждено; видов=" & CStr(first.Count)
+End Sub
+
+Private Function ViewSnapshot() As Collection
+    Dim result As Collection, sheet As SldWorks.Sheet, views As Variant, view As SldWorks.View, i As Long
+    Set result = New Collection
+    Set sheet = drawing.GetCurrentSheet
+    If sheet Is Nothing Then Fail "Нет текущего листа."
+    If StrComp(sheet.GetName, sourceSheetName, vbBinaryCompare) <> 0 Then Fail "Активный лист изменился."
+    views = sheet.GetViews
+    If HasItems(views) Then
+        For i = LBound(views) To UBound(views)
+            Set view = views(i)
+            If view Is Nothing Then Fail "В списке видов пустая ссылка."
+            If view.Type <> swDrawingSheet Then
+                ' Names, including GetUniqueName, may repeat on a single sheet.
+                If VERBOSE_VIEW_SNAPSHOTS Then WriteLog "Снимок: индекс=" & CStr(i) & "; тип=" & CStr(view.Type) & "; имя=[" & view.GetName2 & "]; API-имя=[" & view.GetUniqueName & "]"
+                If ViewIndex(result, view) = 0 Then
+                    result.Add view
+                Else
+                    WriteLog "Повторная ссылка на тот же объект вида пропущена."
+                End If
+            End If
+        Next i
+    End If
+    Set ViewSnapshot = result
+End Function
+
+Private Function SameDrawingDocument(ByVal actual As SldWorks.ModelDoc2) As Boolean
+    Dim actualPath As String, expectedPath As String
+    If actual Is Nothing Then Exit Function
+    If drawingModel Is Nothing Then Exit Function
+    If actual.GetType <> swDocDRAWING Then Exit Function
+    If actual Is drawingModel Then
+        SameDrawingDocument = True
+        Exit Function
+    End If
+    actualPath = Replace(actual.GetPathName, "/", "\")
+    expectedPath = Replace(drawingModel.GetPathName, "/", "\")
+    ' Empty paths are NOT a document identity. Unsaved documents require object identity.
+    If Len(actualPath) = 0 Or Len(expectedPath) = 0 Then Exit Function
+    SameDrawingDocument = (StrComp(actualPath, expectedPath, vbTextCompare) = 0)
+End Function
+
+Private Sub EnsureSourceSheetActive()
+    Dim active As SldWorks.ModelDoc2, sheet As SldWorks.Sheet, errors As Long, result As Boolean
+    Set active = app.ActiveDoc
+    If SameDrawingDocument(active) = False Then
+        Set active = app.ActivateDoc3(drawingModel.GetTitle, False, swDontRebuildActiveDoc, errors)
+        If SameDrawingDocument(active) = False Then Fail "Не активирован исходный чертёж; код=" & CStr(errors)
+    End If
+    drawing.EditSheet
+    Set sheet = drawing.GetCurrentSheet
+    If sheet Is Nothing Then Fail "Нет текущего листа чертежа."
+    If StrComp(sheet.GetName, sourceSheetName, vbTextCompare) <> 0 Then
+        result = drawing.ActivateSheet(sourceSheetName)
+        Set sheet = drawing.GetCurrentSheet
+        If sheet Is Nothing Then Fail "После активации не получен лист."
+        WriteLog "ActivateSheet API=" & CStr(result) & "; факт=[" & sheet.GetName & "]"
+        If StrComp(sheet.GetName, sourceSheetName, vbTextCompare) <> 0 Then Fail "Не активирован исходный лист."
+    End If
+    drawing.EditSheet
+End Sub
+
+Private Sub SelectDrawingView(ByVal view As SldWorks.View)
+    Dim manager As SldWorks.SelectionMgr, selected As SldWorks.View
+    Dim objects(0) As Object, count As Long
+    If view Is Nothing Then Fail "Нет вида для выбора."
+    EnsureSourceSheetActive
+    drawingModel.ClearSelection2 True
+    Set objects(0) = view
+    count = drawingModel.Extension.MultiSelect2(objects, False, Nothing)
+    WriteLog "Выбор объекта вида: MultiSelect2=" & CStr(count)
+    Set manager = drawingModel.SelectionManager
+    If manager Is Nothing Then Fail "Нет менеджера выбора чертежа."
+    If manager.GetSelectedObjectCount2(-1) <> 1 Then Fail "Выбран не один вид."
+    If manager.GetSelectedObjectType3(1, -1) <> swSelDRAWINGVIEWS Then Fail "Выбран объект другого типа."
+    Set selected = manager.GetSelectedObject6(1, -1)
+    If selected Is Nothing Then Fail "Выбор вида вернул Nothing."
+    If SameDrawingView(selected, view) = False Then Fail "Выбран другой объект вида."
+End Sub
+
+Private Function CopySourceView(ByVal source As SldWorks.View) As SldWorks.View
+    Dim before As Collection, after As Collection, i As Long, added As Long
+    Dim pasted As SldWorks.View, candidate As SldWorks.View
+    Dim number As Long, description As String, origin As String, failureStage As String
+    Dim actualSheet As SldWorks.Sheet, changedSheet As Boolean
+    On Error GoTo PasteFailed
+    MarkStage "Снимок видов перед копированием"
+    EnsureSourceSheetActive
+    Set before = ViewSnapshot()
+    If ViewIndex(before, source) = 0 Then Fail "Исходного вида нет на текущем листе."
+    MarkStage "Копирование исходного вида"
+    SelectDrawingView source
+    drawingModel.EditCopy
+    drawingModel.ClearSelection2 True
+    MarkStage "Выбор листа для вставки"
+    EnsureSourceSheetActive
+    If drawingModel.Extension.SelectByID2(sourceSheetName, "SHEET", 0#, 0#, 0#, False, 0, Nothing, 0) = False Then Fail "Не выбран лист для вставки."
+    MarkStage "Вставка копии исходного вида"
+    pendingPaste = True
+    drawingModel.Paste
+    MarkStage "Перестроение после вставки"
+    drawingModel.EditRebuild3
+    GoTo RegisterPasted
+PasteFailed:
+    number = Err.Number
+    description = Err.Description
+    origin = Err.Source
+    failureStage = currentStage
+    ' Paste may have created views before raising. Register the delta even on error.
+    WriteLog DescribeError(number, origin, description, Erl)
+RegisterPasted:
+    On Error GoTo 0
+    If before Is Nothing Then Err.Raise number, origin, description
+    MarkStage "Поиск и учёт вставленных видов"
+    Set actualSheet = drawing.GetCurrentSheet
+    If actualSheet Is Nothing Then Fail "Нет активного листа после вставки."
+    changedSheet = (StrComp(actualSheet.GetName, sourceSheetName, vbBinaryCompare) <> 0)
+    If SameDrawingDocument(app.ActiveDoc) = False Then changedSheet = True
+    EnsureSourceSheetActive
+    Set after = ViewSnapshot()
+    If OriginalViewsPresent(before, after) = False Then
+        pendingPaste = True
+        Fail "После вставки не подтверждены все исходные объекты видов. Неизвестные объекты не удаляются автоматически."
+    End If
+    For i = 1 To after.Count
+        Set candidate = after(i)
+        If ViewIndex(before, candidate) = 0 Then
+            madeViews.Add candidate
+            added = added + 1
+            Set pasted = candidate
+        End If
+    Next i
+    pendingPaste = changedSheet
+    If number <> 0 Then Err.Raise number, origin, "Этап исходной ошибки: " & failureStage & "; " & description
+    If CanUsePastedView(added, pendingPaste) = False Then Fail "Вставлено новых видов: " & CStr(added) & "; ожидался один на неизменившемся листе."
+    If pasted Is Nothing Then Fail "Вставка не вернула вид."
+    Set CopySourceView = pasted
+End Function
+
+Private Sub ApplyDirection(ByVal view As SldWorks.View, ByVal config As String, ByVal direction As Long)
+    Dim body As SldWorks.Body2, singleBody(0) As SldWorks.Body2
+    MarkStage "Смена стандартного направления"
+    ShowStandardDirection view, direction
+    MarkStage "Конфигурация и изоляция тела"
+    view.ReferencedConfiguration = config
+    Set body = ResolvePartBody(currentBody, config)
+    Set singleBody(0) = body
+    view.Bodies = singleBody
+    view.UseSheetScale = False
+    view.ScaleDecimal = DETAIL_SCALE
+    view.Angle = 0#
+    If view.SetDisplayMode4(False, swHIDDEN, False, False, True) = False Then Fail "Не установлен режим без невидимых линий."
+    view.SetDisplayTangentEdges2 swTangentEdgesHidden
+    MarkStage "Перестроение вида с одним телом"
+    drawingModel.EditRebuild3
+    WriteLog "Ориентация по данным вида: " & view.GetOrientationName
+    MarkStage "Проверка тела в виде"
+    VerifySingleBody view, currentBody, config
+End Sub
+
+Private Function DirectionAliases(ByVal direction As Long) As Variant
+    Select Case direction
+        Case swFrontView: DirectionAliases = Array("*Спереди", "*Front")
+        Case swBackView: DirectionAliases = Array("*Сзади", "*Back")
+        Case swLeftView: DirectionAliases = Array("*Слева", "*Left")
+        Case swRightView: DirectionAliases = Array("*Справа", "*Right")
+        Case swTopView: DirectionAliases = Array("*Сверху", "*Top")
+        Case swBottomView: DirectionAliases = Array("*Снизу", "*Bottom")
+        Case Else: Fail "Неизвестный ID стандартного направления."
+    End Select
+End Function
+
+Private Function TryShowDirection(ByVal view As SldWorks.View, ByVal name As String, ByVal id As Long) As Boolean
+    On Error GoTo Failed
+    SelectDrawingView view
+    drawingModel.ShowNamedView2 name, id
+    drawingModel.EditRebuild3
+    WriteLog "Команда направления=[" & name & "]; ID=" & CStr(id) & "; факт=[" & view.GetOrientationName & "]"
+    TryShowDirection = True
+    Exit Function
+Failed:
+    WriteLog DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+End Function
+
+Private Sub ShowStandardDirection(ByVal view As SldWorks.View, ByVal direction As Long)
+    Dim aliases As Variant, aliasName As Variant, actual As String, numericAccepted As Boolean
+    aliases = DirectionAliases(direction)
+    numericAccepted = TryShowDirection(view, "", direction)
+    If numericAccepted Then
+        actual = view.GetOrientationName
+        For Each aliasName In aliases
+            If StrComp(actual, CStr(aliasName), vbTextCompare) = 0 Then Exit Sub
+        Next aliasName
+    End If
+    ' Compatibility with the original working macro's Russian named-view calls.
+    For Each aliasName In aliases
+        If TryShowDirection(view, CStr(aliasName), -1) Then
+            If StrComp(view.GetOrientationName, CStr(aliasName), vbTextCompare) = 0 Then Exit Sub
+        End If
+    Next aliasName
+    If numericAccepted = False Then Fail "Не удалось применить направление ни по ID, ни по имени."
+    WriteLog "Локализованное имя не подтверждено; принимается только фактическая видимая грань с нормалью к наблюдателю."
+End Sub
+
+Private Function FindVisibleHoleFace(ByVal view As SldWorks.View, ByRef holes As Long, ByRef area As Double) As SldWorks.Face2
+    Dim components As Variant, faces As Variant, component As SldWorks.Component2
+    Dim face As SldWorks.Face2, surface As SldWorks.Surface, body As SldWorks.Body2
+    Dim holeLoop As SldWorks.Loop2, transform As SldWorks.MathTransform, rotation As Variant
+    Dim i As Long, j As Long, count As Long, candidateArea As Double, facing As Double
+    holes = 0
+    area = 0#
+    MarkStage "Матрица направления чертёжного вида"
+    Set transform = view.ModelToViewTransform
+    If transform Is Nothing Then Fail "Вид не вернул матрицу ModelToViewTransform."
+    rotation = transform.ArrayData
+    If HasItems(rotation) = False Then Fail "Матрица вида пуста."
+    If UBound(rotation) < 8 Then Fail "Неполная матрица вида."
+    MarkStage "Видимые грани из контекста чертежа"
+    components = view.GetVisibleComponents
+    If HasItems(components) = False Then Exit Function
+    For i = LBound(components) To UBound(components)
+        Set component = components(i)
+        If Not component Is Nothing Then
+            faces = view.GetVisibleEntities2(component, swViewEntityType_Face)
+            If HasItems(faces) Then
+                For j = LBound(faces) To UBound(faces)
+                    Set face = faces(j)
+                    If Not face Is Nothing Then
+                        Set surface = face.GetSurface
+                        If Not surface Is Nothing Then
+                            If surface.IsPlane Then
+                                Set body = face.GetBody
+                                If Not body Is Nothing Then
+                                    If StrComp(body.Name, currentBody, vbTextCompare) = 0 Then
+                                        facing = FaceFacing(face.Normal, rotation)
+                                        If facing >= 0.9999 Then
+                                            count = 0
+                                            Set holeLoop = face.GetFirstLoop
+                                            Do While Not holeLoop Is Nothing
+                                                If IsRoundOpening(holeLoop) Then count = count + 1
+                                                Set holeLoop = holeLoop.GetNext
+                                            Loop
+                                            If count > 0 Then WriteLog "Круглых контуров=" & CStr(count) & "; cos(normal)=" & CStr(facing)
+                                            candidateArea = face.GetArea
+                                            If BetterCandidate(count, candidateArea, holes, area) Then
+                                                holes = count
+                                                area = candidateArea
+                                                Set FindVisibleHoleFace = face
+                                            End If
+                                        End If
+                                    End If
+                                End If
+                            End If
+                        End If
+                    End If
+                Next j
+            End If
+        End If
+    Next i
+End Function
+
+Private Function FaceFacing(ByVal normal As Variant, ByVal rotation As Variant) As Double
+    Dim normalLength As Double, axisLength As Double
+    If HasItems(normal) = False Then Exit Function
+    If UBound(normal) < 2 Then Exit Function
+    If HasItems(rotation) = False Then Exit Function
+    If UBound(rotation) < 8 Then Exit Function
+    normalLength = Sqr(normal(0) ^ 2 + normal(1) ^ 2 + normal(2) ^ 2)
+    axisLength = Sqr(rotation(2) ^ 2 + rotation(5) ^ 2 + rotation(8) ^ 2)
+    If normalLength < EPS Or axisLength < EPS Then Exit Function
+    FaceFacing = (normal(0) * rotation(2) + normal(1) * rotation(5) + normal(2) * rotation(8)) / (normalLength * axisLength)
+End Function
+
+Private Function BetterCandidate(ByVal holes As Long, ByVal area As Double, ByVal bestHoles As Long, ByVal bestArea As Double) As Boolean
+    BetterCandidate = holes > 0 And (holes > bestHoles Or (holes = bestHoles And area > bestArea))
+End Function
+
+Private Sub VerifySingleBody(ByVal view As SldWorks.View, ByVal expectedName As String, ByVal expectedConfig As String)
+    Dim bodies As Variant, actual As SldWorks.Body2
+    Dim reference As SldWorks.ModelDoc2, part As SldWorks.PartDoc
+    Dim modelBodies As Variant, modelBody As SldWorks.Body2
+    Dim matches As Long, i As Long, actualName As String
+    ' Body2 objects returned by View.Bodies belong to the drawing context.
+    ' ISldWorks.IsSame is not a cross-context model-body identity test.
+    Set reference = view.ReferencedDocument
+    If reference Is Nothing Then Fail "Не загружена модель созданного вида."
+    If StrComp(reference.GetPathName, partModel.GetPathName, vbTextCompare) <> 0 Then
+        Fail "Созданный вид ссылается на другую модель."
+    End If
+    If StrComp(view.ReferencedConfiguration, expectedConfig, vbTextCompare) <> 0 Then
+        Fail "Конфигурация вида не совпадает с конфигурацией отбора тел."
+    End If
+    If StrComp(ActivePartConfiguration(), expectedConfig, vbTextCompare) <> 0 Then
+        Fail "Конфигурация исходной модели изменилась после отбора тел."
+    End If
+    bodies = view.Bodies
+    If HasItems(bodies) = False Then Fail "Вид не вернул изолированное тело."
+    If UBound(bodies) - LBound(bodies) <> 0 Then Fail "В вид попало несколько тел."
+    Set actual = bodies(LBound(bodies))
+    If actual Is Nothing Then Fail "Вид вернул пустую ссылку на тело."
+    actualName = actual.Name
+    Set part = partModel
+    modelBodies = part.GetBodies2(swAllBodies, False)
+    If HasItems(modelBodies) Then
+        For i = LBound(modelBodies) To UBound(modelBodies)
+            Set modelBody = modelBodies(i)
+            If Not modelBody Is Nothing Then
+                If StrComp(modelBody.Name, expectedName, vbTextCompare) = 0 Then matches = matches + 1
+            End If
+        Next i
+    End If
+    If BodyNameMatches(expectedName, actualName, matches) = False Then
+        Fail "Не подтверждено тело вида. Ожидалось: [" & expectedName & "]; в виде: [" & actualName & _
+             "]; совпадений в модели: " & CStr(matches) & "."
+    End If
+End Sub
+
+Private Function BodyNameMatches(ByVal expectedName As String, ByVal actualName As String, ByVal matches As Long) As Boolean
+    BodyNameMatches = Len(expectedName) > 0 And Len(actualName) > 0 And matches = 1 And StrComp(expectedName, actualName, vbTextCompare) = 0
+End Function
+
+Private Sub CheckPreviousRun(ByVal sheet As SldWorks.Sheet)
+    Dim views As Variant, view As SldWorks.View, i As Long
+    views = sheet.GetViews
+    If HasItems(views) Then
+        For i = LBound(views) To UBound(views)
+            Set view = views(i)
+            If view Is Nothing Then Fail "Пустая ссылка при проверке ранее созданных видов."
+            If Left$(view.GetName2, Len(VIEW_PREFIX)) = VIEW_PREFIX Then
+                Fail "На листе уже есть виды DRILL_. Удалите их перед повторным запуском."
+            End If
+        Next i
+    End If
+End Sub
+
+Private Function LowestViewBottom(ByVal sheet As SldWorks.Sheet, ByVal height As Double) As Double
+    Dim views As Variant, view As SldWorks.View, outline As Variant, i As Long
+    LowestViewBottom = height - SIDE_MARGIN
+    views = sheet.GetViews
+    If HasItems(views) Then
+        For i = LBound(views) To UBound(views)
+            Set view = views(i)
+            If view Is Nothing Then Fail "Пустая ссылка при расчёте свободного места."
+            If view.Type <> swDrawingSheet Then
+                outline = ReadOutline(view)
+                If outline(1) < LowestViewBottom Then LowestViewBottom = outline(1)
+            End If
+        Next i
+    End If
+End Function
+
+Private Function ReadOutline(ByVal view As SldWorks.View) As Variant
+    Dim values As Variant
+    If view Is Nothing Then Fail "Нет вида для чтения габаритов."
+    values = view.GetOutline
+    If HasItems(values) = False Then Fail "Вид не вернул габариты."
+    If LBound(values) <> 0 Or UBound(values) < 3 Then Fail "Неполные габариты вида."
+    ReadOutline = values
+End Function
+
+Private Function ReadPosition(ByVal view As SldWorks.View) As Variant
+    Dim values As Variant
+    If view Is Nothing Then Fail "Нет вида для чтения положения."
+    values = view.Position
+    If HasItems(values) = False Then Fail "Вид не вернул положение."
+    If LBound(values) <> 0 Or UBound(values) < 1 Then Fail "Неполные координаты вида."
+    ReadPosition = values
+End Function
+
+Private Sub PlaceDetail(ByVal view As SldWorks.View, ByRef cursorY As Double, ByVal sheetWidth As Double)
+    Dim outline As Variant, position As Variant, width As Double, height As Double
+    Dim angle As Double, result As Boolean
+    MarkStage "Габариты и размещение вида"
+    outline = ReadOutline(view)
+    width = outline(2) - outline(0)
+    height = outline(3) - outline(1)
+    If height > width Then
+        SelectDrawingView view
+        result = drawing.DrawingViewRotate(view.Angle + 1.5707963267949)
+        If result = False Then Fail "Не удалось повернуть вид горизонтально."
+        drawingModel.EditRebuild3
+        outline = ReadOutline(view)
+        width = outline(2) - outline(0)
+        height = outline(3) - outline(1)
+    End If
+    If HOLES_LEFT Then OrientHolesLeft view
+    outline = ReadOutline(view)
+    width = outline(2) - outline(0)
+    height = outline(3) - outline(1)
+    If width <= EPS Or height <= EPS Then Fail "Пустые габариты вида."
+    If FitsLayout(width, height, cursorY, sheetWidth) = False Then
+        If ALLOW_WORKSPACE_LAYOUT = False Then Fail "Не хватает места в полях листа. Включите ALLOW_WORKSPACE_LAYOUT или освободите лист."
+        WriteLog "Вид сохраняется в рабочей области за полями листа; требуется компоновка перед печатью."
+    End If
+    position = ReadPosition(view)
+    position(0) = position(0) + sheetWidth - SIDE_MARGIN - outline(2)
+    position(1) = position(1) + cursorY - outline(3)
+    view.Position = position
+    drawingModel.EditRebuild3
+    outline = ReadOutline(view)
+    If Abs(outline(2) - (sheetWidth - SIDE_MARGIN)) > 0.0001 Or Abs(outline(3) - cursorY) > 0.0001 Then Fail "SOLIDWORKS не применил положение вида."
+    cursorY = outline(1) - GAP
+End Sub
+
+Private Sub DimensionAndArrange(ByVal sheetWidth As Double, ByVal sheetHeight As Double)
+    Dim view As SldWorks.View, i As Long, cursorY As Double, box As Variant
+    Dim errorText As String, remainder As Long
+    On Error GoTo Failed
+    MarkStage "Размеры VBA: обработка созданных видов"
+    cursorY = sheetHeight - SIDE_MARGIN
+    ' Complete ALL body views first; then select and dimension one view at a time.
+    For i = 1 To madeViews.Count
+        Set view = madeViews(i)
+        currentView = view.GetName2
+        currentBody = "DIMENSIONS " & CStr(i)
+        currentDirection = 0
+        If TryDimensionView(view, box, sheetWidth - SIDE_MARGIN, cursorY) Then
+            dimensionsCompleted = dimensionsCompleted + 1
+            ' The strict engine already placed/rebuilt/revalidated this view. Do not move it again.
+            If OutlineInLayout(box, sheetWidth, sheetHeight) = False Then dimensionsOutside = dimensionsOutside + 1
+            cursorY = box(1) - GAP
+        Else
+            dimensionsFailed = dimensionsFailed + 1
+            MarkStage "Компоновка вида без подтверждённых размеров"
+            PlaceDimensionBox view, box, cursorY, sheetWidth, sheetHeight
+        End If
+    Next i
+    Exit Sub
+Failed:
+    errorText = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog errorText
+    remainder = madeViews.Count - dimensionsCompleted - dimensionsFailed
+    If remainder > 0 Then dimensionsFailed = dimensionsFailed + remainder
+    dimensionWarnings.Add "Виды сохранены; этап размеров/компоновки остановлен: " & errorText
+End Sub
+
+Private Function TryDimensionView(ByVal view As SldWorks.View, ByRef box As Variant, _
+                                  ByVal targetRight As Double, ByVal targetTop As Double) As Boolean
+    Dim result As Variant, errorText As String
+    On Error GoTo Failed
+    MarkStage "Размеры VBA: выбор одного созданного вида"
+    SelectDrawingView view
+    result = NativeDimensionView(view, targetRight, targetTop)
+    If HasItems(result) = False Then Fail "Расчёт размеров не вернул результат."
+    If LBound(result) <> 0 Or UBound(result) <> 4 Then Fail "Неизвестный формат результата размеров."
+    If CDbl(result(0)) <= 0# Then Fail "Не подтверждены созданные размеры."
+    box = Array(CDbl(result(1)), CDbl(result(2)), CDbl(result(3)), CDbl(result(4)))
+    If box(2) <= box(0) Or box(3) <= box(1) Then Fail "Пустой габарит оформления."
+    WriteLog "VBA: подтверждено размеров=" & CStr(result(0))
+    TryDimensionView = True
+    Exit Function
+Failed:
+    errorText = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog errorText
+    dimensionWarnings.Add "Вид [" & currentView & "]: размеры не подтверждены; " & errorText
+    On Error GoTo 0
+    ' The engine reports its own best-effort rollback; never delete an already valid body view.
+    box = ReadOutline(view)
+End Function
+
+Private Sub PlaceDimensionBox(ByVal view As SldWorks.View, ByVal box As Variant, ByRef cursorY As Double, _
+                              ByVal sheetWidth As Double, ByVal sheetHeight As Double)
+    Dim position As Variant, actual As Variant, dx As Double, dy As Double, moved As Variant
+    If FitsLayout(box(2) - box(0), box(3) - box(1), cursorY, sheetWidth) = False Then
+        If ALLOW_WORKSPACE_LAYOUT = False Then Fail "Не хватает места для вида с размерами."
+    End If
+    dx = sheetWidth - SIDE_MARGIN - box(2)
+    dy = cursorY - box(3)
+    position = ReadPosition(view)
+    position(0) = position(0) + dx
+    position(1) = position(1) + dy
+    If Abs(dx) > EPS Or Abs(dy) > EPS Then
+        view.Position = position
+        drawingModel.EditRebuild3
+    End If
+    actual = ReadPosition(view)
+    If Abs(actual(0) - position(0)) > 0.0001 Or Abs(actual(1) - position(1)) > 0.0001 Then Fail "Не применена компоновка вида с размерами."
+    moved = Array(box(0) + dx, box(1) + dy, box(2) + dx, box(3) + dy)
+    If OutlineInLayout(moved, sheetWidth, sheetHeight) = False Then dimensionsOutside = dimensionsOutside + 1
+    cursorY = moved(1) - GAP
+End Sub
+
+Private Function HolesNeedFlip(ByVal meanX As Double, ByVal left As Double, ByVal right As Double, ByVal tolerance As Double) As Boolean
+    HolesNeedFlip = meanX > (left + right) / 2# + tolerance
+End Function
+
+Private Function HoleMeanX(ByVal view As SldWorks.View, ByRef count As Long) As Double
+    Dim face As SldWorks.Face2, holeLoop As SldWorks.Loop2, edges As Variant
+    Dim edge As SldWorks.Edge, curve As SldWorks.Curve, circleData As Variant, coords As Variant
+    Dim utility As SldWorks.MathUtility, point As SldWorks.MathPoint, projected As SldWorks.MathPoint
+    Dim transform As SldWorks.MathTransform, xyz(2) As Double, sumX As Double
+    Dim holes As Long, area As Double
+    count = 0
+    Set face = FindVisibleHoleFace(view, holes, area)
+    If face Is Nothing Then Fail "Не найдена обращённая к нам грань с отверстиями."
+    If view.ScaleDecimal <= EPS Then Fail "Недопустимый масштаб проекции центров."
+    Set transform = view.ModelToViewTransform
+    If transform Is Nothing Then Fail "Нет преобразования модели в вид."
+    Set utility = app.GetMathUtility
+    If utility Is Nothing Then Fail "Нет MathUtility для проекции центров."
+    Set holeLoop = face.GetFirstLoop
+    Do While Not holeLoop Is Nothing
+        If IsRoundOpening(holeLoop) Then
+            edges = holeLoop.GetEdges
+            If HasItems(edges) = False Then Fail "Нет рёбер круглого контура."
+            Set edge = edges(LBound(edges))
+            If edge Is Nothing Then Fail "Пустое ребро круглого контура."
+            Set curve = edge.GetCurve
+            If curve Is Nothing Then Fail "Нет кривой круглого контура."
+            circleData = curve.CircleParams
+            If HasItems(circleData) = False Then Fail "Нет центра окружности."
+            If LBound(circleData) <> 0 Or UBound(circleData) < 6 Then Fail "Неполные параметры окружности."
+            xyz(0) = circleData(0): xyz(1) = circleData(1): xyz(2) = circleData(2)
+            Set point = utility.CreatePoint(xyz)
+            If point Is Nothing Then Fail "Не создана точка центра."
+            Set projected = point.MultiplyTransform(transform)
+            If projected Is Nothing Then Fail "Не спроецирован центр отверстия."
+            coords = projected.ArrayData
+            If HasItems(coords) = False Then Fail "Нет координат проекции центра."
+            If LBound(coords) <> 0 Or UBound(coords) < 2 Then Fail "Неполные координаты центра."
+            ' One sample per loop, including a full circleData split into several arcs.
+            ' ModelToViewTransform already includes the drawing view scale.
+            sumX = sumX + CDbl(coords(0))
+            count = count + 1
+        End If
+        Set holeLoop = holeLoop.GetNext
+    Loop
+    If count = 0 Or count <> holes Then Fail "Изменилось число отверстий при проекции центров."
+    HoleMeanX = sumX / count
+End Function
+
+Private Sub OrientHolesLeft(ByVal view As SldWorks.View)
+    Dim originalAngle As Double, attempted As Boolean, outline As Variant, meanX As Double
+    Dim count As Long, afterCount As Long, errorText As String
+    On Error GoTo Failed
+    MarkStage "Ориентация группы отверстий влево"
+    originalAngle = view.Angle
+    outline = ReadOutline(view)
+    meanX = HoleMeanX(view, count)
+    WriteLog "Центр группы X=" & CStr(meanX) & "; середина вида=" & CStr((outline(0) + outline(2)) / 2#)
+    If HolesNeedFlip(meanX, outline(0), outline(2), HOLE_SIDE_TOLERANCE) = False Then Exit Sub
+    SelectDrawingView view
+    attempted = True
+    If drawing.DrawingViewRotate(originalAngle + 3.14159265358979) = False Then Fail "Не выполнен разворот на 180 градусов."
+    drawingModel.EditRebuild3
+    outline = ReadOutline(view)
+    meanX = HoleMeanX(view, afterCount)
+    If afterCount <> count Then Fail "После разворота изменилась выбранная группа отверстий."
+    If HolesNeedFlip(meanX, outline(0), outline(2), HOLE_SIDE_TOLERANCE) Then Fail "После разворота отверстия остались справа."
+    WriteLog "Разворот отверстиями влево подтверждён по центрам."
+    Exit Sub
+Failed:
+    errorText = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog errorText
+    On Error GoTo 0
+    ' This is cosmetic: retain a valid inserted view if orientation is unavailable.
+    ' A failed restore is NOT cosmetic and propagates to the normal body cleanup.
+    If attempted Then
+        SelectDrawingView view
+        If drawing.DrawingViewRotate(originalAngle) = False Then Fail "Не восстановлен угол после неудачного разворота. " & errorText
+        drawingModel.EditRebuild3
+        If Abs(Cos(view.Angle - originalAngle) - 1#) > 0.000001 Then Fail "Не подтверждено восстановление угла. " & errorText
+    End If
+    orientationWarnings.Add "Тело=[" & currentBody & "]: " & errorText
+End Sub
+
+Private Function FitsLayout(ByVal width As Double, ByVal height As Double, ByVal top As Double, ByVal sheetWidth As Double) As Boolean
+    FitsLayout = width <= sheetWidth - 2# * SIDE_MARGIN And top - height >= BOTTOM_MARGIN
+End Function
+
+Private Function OutlineInLayout(ByVal outline As Variant, ByVal sheetWidth As Double, ByVal sheetHeight As Double) As Boolean
+    OutlineInLayout = outline(0) >= SIDE_MARGIN And outline(2) <= sheetWidth - SIDE_MARGIN And outline(1) >= BOTTOM_MARGIN And outline(3) <= sheetHeight - SIDE_MARGIN
+End Function
+
+Private Function CountOutsideLayout(ByVal sheetWidth As Double, ByVal sheetHeight As Double) As Long
+    Dim i As Long, view As SldWorks.View, outline As Variant
+    On Error GoTo Unknown
+    For i = 1 To madeViews.Count
+        Set view = madeViews(i)
+        outline = ReadOutline(view)
+        If OutlineInLayout(outline, sheetWidth, sheetHeight) = False Then CountOutsideLayout = CountOutsideLayout + 1
+    Next i
+    Exit Function
+Unknown:
+    CountOutsideLayout = -1
+End Function
+
+Private Sub AddBalloon(ByVal view As SldWorks.View, ByVal face As SldWorks.Face2)
+    Dim entity As SldWorks.Entity, data As SldWorks.SelectData
+    Dim options As SldWorks.BalloonOptions, note As SldWorks.Note
+    Dim annotation As SldWorks.Annotation, outline As Variant, position As Variant
+    drawingModel.ClearSelection2 True
+    Set entity = face
+    Dim manager As SldWorks.SelectionMgr
+    If face Is Nothing Then Fail "Нет грани для позиции."
+    Set manager = drawingModel.SelectionManager
+    If manager Is Nothing Then Fail "Нет менеджера выбора позиции."
+    Set data = manager.CreateSelectData
+    If data Is Nothing Then Fail "Не создан контекст выбора позиции."
+    Set data.View = view
+    If entity.Select4(False, data) = False Then Fail "Не удалось выбрать грань для позиции."
+    Set options = drawingModel.Extension.CreateBalloonOptions
+    If options Is Nothing Then Fail "Не созданы параметры позиции."
+    options.Style = swBS_None
+    options.UpperTextContent = swBalloonTextItemNumber
+    options.ShowQuantity = True
+    options.QuantityPlacement = 3
+    options.QuantityDenotationText = "шт"
+    options.QuantityOverride = False
+    Set note = drawingModel.Extension.InsertBOMBalloon2(options)
+    If note Is Nothing Then Fail "Не удалось создать позицию списка вырезов."
+    Set annotation = note.GetAnnotation
+    If annotation Is Nothing Then Fail "Нет аннотации позиции."
+    outline = ReadOutline(view)
+    If annotation.SetPosition2(outline(0), outline(3) + GAP / 3#, 0#) = False Then Fail "Не установлено положение позиции."
+    drawingModel.ClearSelection2 True
+End Sub
+
+Private Sub RemoveCopiedAnnotations(ByVal view As SldWorks.View)
+    Dim annotations As Collection, annotation As SldWorks.Annotation, item As Variant
+    Dim values As Variant, i As Long, manager As SldWorks.SelectionMgr
+    MarkStage "Удаление аннотаций только из новой копии вида"
+    Set annotations = New Collection
+    values = view.GetAnnotations
+    If HasItems(values) Then
+        For i = LBound(values) To UBound(values)
+            Set annotation = values(i)
+            If Not annotation Is Nothing Then
+                If annotation.GetType = swNote Or annotation.GetType = swDisplayDimension Then annotations.Add annotation
+            End If
+        Next i
+    End If
+    Set manager = drawingModel.SelectionManager
+    If manager Is Nothing Then Fail "Нет менеджера выбора аннотаций копии."
+    For Each item In annotations
+        Set annotation = item
+        drawingModel.ClearSelection2 True
+        If annotation.Select3(False, Nothing) = False Then Fail "Не выбрана скопированная аннотация."
+        If manager.GetSelectedObjectCount2(-1) <> 1 Then Fail "Для удаления выбрана не одна аннотация."
+        If drawingModel.Extension.DeleteSelection2(0) = False Then Fail "Не удалена скопированная аннотация."
+    Next item
+End Sub
+
+Private Function TryDeleteView(ByVal view As SldWorks.View) As Boolean
+    Dim before As Collection, remaining As Collection, targetIndex As Long, i As Long
+    Dim survivor As SldWorks.View
+    On Error GoTo Failed
+    If view Is Nothing Then Exit Function
+    EnsureSourceSheetActive
+    Set before = ViewSnapshot()
+    targetIndex = ViewIndex(before, view)
+    If targetIndex = 0 Then Exit Function
+    SelectDrawingView view
+    If drawingModel.Extension.DeleteSelection2(swDelete_Absorbed) = False Then Exit Function
+    Set remaining = ViewSnapshot()
+    If remaining.Count <> before.Count - 1 Then Exit Function
+    ' Do not dereference or compare the deleted object's now-invalid COM pointer.
+    ' All OTHER original objects must survive; count then proves only the target left.
+    For i = 1 To before.Count
+        If i <> targetIndex Then
+            Set survivor = before(i)
+            If ViewIndex(remaining, survivor) = 0 Then Exit Function
+        End If
+    Next i
+    TryDeleteView = True
+    Exit Function
+Failed:
+    WriteLog "Ошибка удаления вида: " & CStr(Err.Number) & ": " & Err.Description
+End Function
+
+Private Function CleanupSince(ByVal keep As Long) As String
+    Dim i As Long, initial As Long, removed As Long, view As SldWorks.View
+    If madeViews Is Nothing Then Exit Function
+    initial = madeViews.Count - keep
+    For i = madeViews.Count To keep + 1 Step -1
+        Set view = madeViews(i)
+        If TryDeleteView(view) Then
+            madeViews.Remove i
+            removed = removed + 1
+        End If
+    Next i
+    CleanupSince = "Учтено новых видов: " & CStr(initial) & "; удалено: " & CStr(removed) & _
+                   "; осталось неуспешных: " & CStr(madeViews.Count - keep) & "."
+End Function
+
+Private Function CleanupTable() As String
+    Dim table As SldWorks.TableAnnotation, annotation As SldWorks.Annotation
+    On Error GoTo Failed
+    If madeTable Is Nothing Then Exit Function
+    Set table = madeTable
+    Set annotation = table.GetAnnotation
+    If annotation Is Nothing Then GoTo Failed
+    drawingModel.ClearSelection2 True
+    If annotation.Select3(False, Nothing) = False Then GoTo Failed
+    If drawingModel.Extension.DeleteSelection2(swDelete_Absorbed) = False Then GoTo Failed
+    Set madeTable = Nothing
+    CleanupTable = "Созданная этим запуском таблица удалена."
+    Exit Function
+Failed:
+    CleanupTable = "Не удалось удалить созданную таблицу; проверьте лист вручную."
+End Function
+
+Private Function RestoreConfiguration() As String
+    On Error GoTo Failed
+    If partModel Is Nothing Then Exit Function
+    If Len(oldConfig) = 0 Then Exit Function
+    If StrComp(ActivePartConfiguration(), oldConfig, vbTextCompare) <> 0 Then
+        If partModel.ShowConfiguration2(oldConfig) = False Then GoTo Failed
+    End If
+    Exit Function
+Failed:
+    RestoreConfiguration = "Не восстановлена исходная конфигурация: " & oldConfig & ". Модель не сохранена."
+End Function
+
+Private Function RestoreDrawingContext() As String
+    On Error GoTo Failed
+    If drawingModel Is Nothing Then Exit Function
+    If Len(sourceSheetName) = 0 Then Exit Function
+    EnsureSourceSheetActive
+    Exit Function
+Failed:
+    RestoreDrawingContext = "Не восстановлен активный чертёж/лист: " & Err.Description
+End Function
+
+Private Sub StartLog()
+    Dim folder As String
+    logPath = ""
+    folder = Environ$("TEMP")
+    If Len(folder) = 0 Then Exit Sub
+    If Right$(folder, 1) <> "\" Then folder = folder & "\"
+    logPath = folder & "SW_Drilling_" & Format$(Now, "yyyymmdd_hhnnss") & ".txt"
+    WriteLog BUILD_ID
+End Sub
+
+Private Sub MarkStage(ByVal value As String)
+    currentStage = value
+    WriteLog value
+End Sub
+
+Private Sub WriteLog(ByVal value As String)
+    Dim handle As Integer, opened As Boolean
+    On Error GoTo NoFile
+    Debug.Print Format$(Now, "hh:nn:ss") & " | " & currentBody & " | " & CStr(currentDirection) & " | " & currentView & " | " & value
+    If Len(logPath) = 0 Then Exit Sub
+    handle = FreeFile
+    Open logPath For Append As #handle
+    opened = True
+    Print #handle, Format$(Now, "hh:nn:ss") & " | " & currentBody & " | " & CStr(currentDirection) & " | " & currentView & " | " & value
+    Close #handle
+    Exit Sub
+NoFile:
+    On Error Resume Next
+    If opened Then Close #handle
+    logPath = ""
+End Sub
+
+Private Function DescribeError(ByVal number As Long, ByVal origin As String, ByVal description As String, ByVal line As Long) As String
+    DescribeError = "Тело=[" & currentBody & "]; этап=[" & currentStage & "]; направление=" & CStr(currentDirection) & _
+                    "; вид=[" & currentView & "]; ошибка=" & CStr(number) & "; источник=" & origin & ": " & description
+    If line > 0 Then DescribeError = DescribeError & "; строка=" & CStr(line)
+End Function
+
+' Native scalar-transform smoke test. No document/model window is required.
+Public Sub TestGeometry()
+    Dim rotation(15) As Double, normal As Variant
+    On Error GoTo Failed
+    rotation(0) = 1#: rotation(4) = 1#: rotation(8) = 1#: rotation(12) = 1#
+    normal = Array(0#, 0#, 1#)
+    If Abs(FaceFacing(normal, rotation) - 1#) > EPS Then Fail "TestGeometry: front normal failed"
+    normal = Array(0#, 0#, -1#)
+    If Abs(FaceFacing(normal, rotation) + 1#) > EPS Then Fail "TestGeometry: back normal failed"
+    If BetterCandidate(0, 1#, 0, 0#) Then Fail "TestGeometry: empty candidate accepted"
+    If BetterCandidate(2, 1#, 1, 10#) = False Then Fail "TestGeometry: hole count priority failed"
+    MsgBox BUILD_ID & ": TestGeometry passed; this is not a native drawing test.", vbInformation
+    Exit Sub
+Failed:
+    MsgBox Err.Description, vbCritical, "TestGeometry FAILED"
+End Sub
+
+' Optional native copy/paste smoke test. Use a COPY of the drawing; no Save is called.
+Public Sub TestCopyRoundTrip()
+    Dim source As SldWorks.View, copy As SldWorks.View, sheet As SldWorks.Sheet
+    Dim before As Collection, after As Collection, message As String, cleanup As String
+    Dim icon As VbMsgBoxStyle
+    On Error GoTo Failed
+    Set madeViews = New Collection
+    Set madeTable = Nothing
+    Set drawingModel = Nothing
+    icon = vbExclamation
+    currentBody = "COPY_TEST"
+    currentView = ""
+    currentDirection = 0
+    pendingPaste = False
+    unsupportedViewComparisons = 0
+    StartLog
+    MarkStage "Тест копирования: инициализация"
+    Set app = Application.SldWorks
+    If app Is Nothing Then Fail "Нет приложения SOLIDWORKS."
+    Set drawingModel = app.ActiveDoc
+    If drawingModel Is Nothing Then Fail "Нет чертежа."
+    If drawingModel.GetType <> swDocDRAWING Then Fail "Откройте копию чертежа."
+    Set drawing = drawingModel
+    Set sheet = drawing.GetCurrentSheet
+    If sheet Is Nothing Then Fail "Нет листа."
+    sourceSheetName = sheet.GetName
+    Set source = SourceView()
+    If source Is Nothing Then Fail "Нет исходного вида."
+    If source.Type <> swDrawingNamedView Then Fail "Для теста выберите обычный вид модели."
+    If MsgBox("Тест временно вставит и удалит копию выбранного вида. Чертёж не сохраняется. Продолжить?", vbQuestion + vbYesNo) <> vbYes Then Exit Sub
+    CheckViewIdentity source
+    Set before = ViewSnapshot()
+    Set copy = CopySourceView(source)
+    cleanup = CleanupSince(0)
+    If madeViews.Count <> 0 Or pendingPaste Then Fail "Не завершён откат теста. " & cleanup
+    Set after = ViewSnapshot()
+    If after.Count <> before.Count Then Fail "После теста изменилось число видов."
+    If OriginalViewsPresent(before, after) = False Then Fail "После теста отсутствует исходный объект вида."
+    message = "TestCopyRoundTrip: копирование, вставка, обнаружение и удаление одного вида проверены. Геометрия отверстий этим тестом не проверяется."
+    icon = vbInformation
+    GoTo Finished
+Failed:
+    message = DescribeError(Err.Number, Err.Source, Err.Description, Erl)
+    WriteLog message
+    cleanup = CleanupSince(0)
+    message = message & vbCrLf & cleanup
+    If pendingPaste Then message = message & vbCrLf & "Возможны неучтённые виды; проверьте лист вручную."
+Finished:
+    On Error Resume Next
+    drawingModel.ClearSelection2 True
+    On Error GoTo 0
+    If Len(logPath) > 0 Then message = message & vbCrLf & "Журнал: " & logPath
+    MsgBox BUILD_ID & vbCrLf & message, icon, "TestCopyRoundTrip"
+End Sub
+
+' BEGIN NATIVE DIMENSIONS ENGINE
+' Everything executes inside the existing SOLIDWORKS VBA host. No external runtime.
+Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRight As Double, ByVal targetTop As Double) As Variant
+    Dim created As Collection, expected As Collection, lines() As NDLine, holes() As NDHole
+    Dim lineCount As Long, holeCount As Long, bounds As NDBounds, viewScale As Double
+    Dim selectedHoles As Collection, xPositions As Collection, yPositions As Collection, groups As Collection
+    Dim i As Long, k As Long, index As Long, group As Collection, display As SldWorks.DisplayDimension
+    Dim projectedBefore As Boolean, modeKnown As Boolean, originalPosition As Variant, position As Variant
+    Dim box As Variant, actual As Variant, dx As Double, dy As Double, number As Long, description As String, origin As String
+    Dim cleanup As String, prefix As String
+    On Error GoTo Failed
+    Set created = New Collection
+    Set expected = New Collection
+    If view Is Nothing Then Fail "Нет вида для размеров."
+    MarkStage "VBA-размеры: проверка вида"
+    SelectDrawingView view
+    If view.ReferencedDocument Is Nothing Then Fail "Не загружена модель вида."
+    If view.ReferencedDocument.GetType <> swDocPART Then Fail "Размеры поддерживают вид одной детали."
+    viewScale = view.ScaleDecimal
+    If NdFinite(viewScale) = False Then Fail "Неконечный масштаб вида."
+    If viewScale <= 0# Then Fail "Неположительный масштаб вида."
+    If NdFinite(targetRight) = False Or NdFinite(targetTop) = False Then Fail "Неконечные координаты размещения."
+    originalPosition = ReadPosition(view)
+    projectedBefore = view.ProjectedDimensions
+    modeKnown = True
+    view.ProjectedDimensions = True
+    If view.ProjectedDimensions = False Then Fail "Не включены проекционные размеры вида."
+    drawingModel.EditRebuild3
+    If view.ProjectedDimensions = False Then Fail "После перестроения сброшен проекционный режим."
+    MarkStage "VBA-размеры: чтение геометрии"
+    NdReadGeometry view, viewScale, lines, lineCount, holes, holeCount, bounds
+    NdFindBounds lines, lineCount, bounds, viewScale
+    Set selectedHoles = NdPrepareHoles(holes, holeCount, bounds, viewScale)
+    If selectedHoles.Count = 0 Then Fail "Для размеров не найдено полного круглого ребра внутренней цилиндрической стенки. Разделённые дуги требуют отдельной проверки."
+    Set xPositions = NdPositions(holes, selectedHoles, True, viewScale)
+    Set yPositions = NdPositions(holes, selectedHoles, False, viewScale)
+    Set groups = NdDiameterGroups(holes, selectedHoles, viewScale)
+    WriteLog "VBA-размеры: отверстий=" & CStr(selectedHoles.Count) & "; X=" & CStr(xPositions.Count) & "; Y=" & CStr(yPositions.Count)
+    MarkStage "VBA-размеры: создание"
+    For i = 1 To xPositions.Count
+        index = CLng(xPositions(i))
+        NdAddLinear view, lines(bounds.LeftIndex).Entity, holes(index).Entity, True, _
+                    (bounds.MinX + holes(index).X) / 2#, bounds.MinY - 0.01 - (i - 1) * 0.008, _
+                    holes(index).X - bounds.MinX, True, viewScale, created, expected
+    Next i
+    NdAddLinear view, lines(bounds.LeftIndex).Entity, lines(bounds.RightIndex).Entity, True, _
+                (bounds.MinX + bounds.MaxX) / 2#, bounds.MinY - 0.01 - xPositions.Count * 0.008, _
+                bounds.MaxX - bounds.MinX, False, viewScale, created, expected
+    For i = 1 To yPositions.Count
+        index = CLng(yPositions(i))
+        NdAddLinear view, lines(bounds.BottomIndex).Entity, holes(index).Entity, False, _
+                    bounds.MaxX + 0.01 + (i - 1) * 0.008, (bounds.MinY + holes(index).Y) / 2#, _
+                    holes(index).Y - bounds.MinY, True, viewScale, created, expected
+    Next i
+    NdAddLinear view, lines(bounds.BottomIndex).Entity, lines(bounds.TopIndex).Entity, False, _
+                bounds.MaxX + 0.01 + yPositions.Count * 0.008, (bounds.MinY + bounds.MaxY) / 2#, _
+                bounds.MaxY - bounds.MinY, False, viewScale, created, expected
+    For i = 1 To groups.Count
+        Set group = groups(i)
+        index = CLng(group(1))
+        drawingModel.ClearSelection2 True
+        NdSelectEdge view, holes(index).Entity, False
+        Set display = drawingModel.AddDiameterDimension2(holes(index).X, bounds.MaxY + 0.01 + (i - 1) * 0.008, 0#)
+        NdRegister display, 2# * holes(index).Radius, created, expected
+        If display.Type2 <> swDiameterDimension Then Fail "Создан не диаметральный размер."
+        NdValidate display, 2# * holes(index).Radius, viewScale
+        If group.Count > 1 Then
+            prefix = CStr(group.Count) & " X "
+            display.SetText swDimensionTextPrefix, prefix
+            If StrComp(display.GetText(swDimensionTextPrefix), prefix, vbBinaryCompare) <> 0 Then Fail "Не установлено количество отверстий."
+        End If
+    Next i
+    drawingModel.EditRebuild3
+    NdValidateAll created, expected, viewScale
+    box = NdDimensionEnvelope(created, bounds)
+    dx = targetRight - box(3)
+    dy = targetTop - box(4)
+    position = ReadPosition(view)
+    position(0) = position(0) + dx
+    position(1) = position(1) + dy
+    MarkStage "VBA-размеры: окончательное размещение"
+    view.Position = position
+    drawingModel.EditRebuild3
+    actual = ReadPosition(view)
+    If Abs(actual(0) - position(0)) > 0.0001 Or Abs(actual(1) - position(1)) > 0.0001 Then Fail "Не применено положение вида с размерами."
+    bounds.MinX = bounds.MinX + dx: bounds.MaxX = bounds.MaxX + dx
+    bounds.MinY = bounds.MinY + dy: bounds.MaxY = bounds.MaxY + dy
+    If view.ProjectedDimensions = False Then Fail "После размещения сброшен проекционный режим."
+    NdValidateAll created, expected, viewScale
+    box = NdDimensionEnvelope(created, bounds)
+    If Abs(box(3) - targetRight) > 0.0001 Or Abs(box(4) - targetTop) > 0.0001 Then Fail "Не подтверждены границы размещения вида с размерами."
+    drawingModel.ClearSelection2 True
+    NativeDimensionView = box
+    Exit Function
+Failed:
+    number = Err.Number
+    description = Err.Description
+    origin = Err.Source
+    On Error GoTo 0
+    cleanup = NdRollback(created)
+    cleanup = cleanup & NdRestore(view, originalPosition, modeKnown, projectedBefore)
+    WriteLog "VBA-размеры: отказ=" & CStr(number) & "; " & description & cleanup
+    If number = 0 Then number = vbObjectError + 1900
+    Err.Raise number, origin, description & cleanup
+End Function
+
+Private Function NdFinite(ByVal value As Double) As Boolean
+    NdFinite = (value = value And Abs(value) <= 1.79769313486231E+308)
+End Function
+
+Private Function NdFullCircle(ByVal uMin As Double, ByVal uMax As Double) As Boolean
+    NdFullCircle = Abs(Abs(uMax - uMin) - 2# * ND_PI) <= 0.000001
+End Function
+
+Private Function NdMatchesValue(ByVal actual As Double, ByVal expectedSheet As Double, ByVal viewScale As Double) As Boolean
+    NdMatchesValue = Abs(actual - expectedSheet / viewScale) <= ND_DIAMETER_TOL
+End Function
+
+Private Function NdPositionNear(ByVal first As Double, ByVal second As Double, ByVal viewScale As Double) As Boolean
+    NdPositionNear = Abs(first - second) <= ND_MODEL_TOL * viewScale
+End Function
+
+Private Function NdDiameterNear(ByVal firstRadius As Double, ByVal secondRadius As Double, ByVal viewScale As Double) As Boolean
+    NdDiameterNear = Abs(2# * firstRadius - 2# * secondRadius) <= ND_DIAMETER_TOL * viewScale
+End Function
+
+Private Function NdFaceOn(ByVal center As Variant, ByVal normalPoint As Variant) As Boolean
+    Dim dx As Double, dy As Double, dz As Double, length As Double
+    dx = normalPoint(0) - center(0)
+    dy = normalPoint(1) - center(1)
+    dz = normalPoint(2) - center(2)
+    length = Sqr(dx * dx + dy * dy + dz * dz)
+    If length <= 0# Then Exit Function
+    NdFaceOn = Sqr(dx * dx + dy * dy) / length <= 0.000001
+End Function
+
+Private Function NdProject(ByVal utility As SldWorks.MathUtility, ByVal transform As SldWorks.MathTransform, ByVal values As Variant) As Variant
+    Dim point As SldWorks.MathPoint, projected As SldWorks.MathPoint
+    Dim xyz(2) As Double, result As Variant, i As Long
+    If HasItems(values) = False Then Fail "Нет координат точки геометрии."
+    If LBound(values) <> 0 Or UBound(values) < 2 Then Fail "Неполные координаты геометрии."
+    For i = 0 To 2
+        xyz(i) = CDbl(values(i))
+        If NdFinite(xyz(i)) = False Then Fail "Неконечные координаты модели."
+    Next i
+    Set point = utility.CreatePoint(xyz)
+    If point Is Nothing Then Fail "Не создана геометрическая точка."
+    Set projected = point.MultiplyTransform(transform)
+    If projected Is Nothing Then Fail "Не спроецирована геометрическая точка."
+    result = projected.ArrayData
+    If HasItems(result) = False Then Fail "Нет спроецированных координат."
+    If LBound(result) <> 0 Or UBound(result) < 2 Then Fail "Неполная проекция точки."
+    For i = 0 To 2
+        If NdFinite(CDbl(result(i))) = False Then Fail "Неконечная проекция точки."
+    Next i
+    NdProject = result
+End Function
+
+Private Sub NdIncludePoint(ByRef bounds As NDBounds, ByRef initialized As Boolean, ByVal x As Double, ByVal y As Double)
+    If NdFinite(x) = False Or NdFinite(y) = False Then Fail "Неконечный экстремум контура."
+    If initialized = False Then
+        bounds.MinX = x: bounds.MaxX = x: bounds.MinY = y: bounds.MaxY = y
+        initialized = True
+    Else
+        If x < bounds.MinX Then bounds.MinX = x
+        If x > bounds.MaxX Then bounds.MaxX = x
+        If y < bounds.MinY Then bounds.MinY = y
+        If y > bounds.MaxY Then bounds.MaxY = y
+    End If
+End Sub
+
+Private Function NdAtan2(ByVal y As Double, ByVal x As Double) As Double
+    If x > 0# Then
+        NdAtan2 = Atn(y / x)
+    ElseIf x < 0# Then
+        NdAtan2 = Atn(y / x)
+        If y >= 0# Then NdAtan2 = NdAtan2 + ND_PI Else NdAtan2 = NdAtan2 - ND_PI
+    ElseIf y > 0# Then
+        NdAtan2 = ND_PI / 2#
+    ElseIf y < 0# Then
+        NdAtan2 = -ND_PI / 2#
+    Else
+        NdAtan2 = 0#
+    End If
+End Function
+
+Private Sub NdArcExtrema(ByVal center As Variant, ByVal atZero As Variant, ByVal atQuarter As Variant, _
+                         ByVal uMin As Double, ByVal uMax As Double, ByRef bounds As NDBounds, ByRef initialized As Boolean)
+    Dim cx As Double, cy As Double, sx As Double, sy As Double, root As Double, first As Double, u As Double
+    Dim axis As Long, k As Long
+    If NdFinite(uMin) = False Or NdFinite(uMax) = False Then Fail "Неконечный интервал кругового ребра."
+    If uMax < uMin Or uMax - uMin > 2# * ND_PI + 0.000001 Then Fail "Неподдерживаемый интервал дуги."
+    cx = atZero(0) - center(0): cy = atZero(1) - center(1)
+    sx = atQuarter(0) - center(0): sy = atQuarter(1) - center(1)
+    NdArcPoint center, cx, cy, sx, sy, uMin, bounds, initialized
+    NdArcPoint center, cx, cy, sx, sy, uMax, bounds, initialized
+    For axis = 0 To 1
+        If axis = 0 Then root = NdAtan2(sx, cx) Else root = NdAtan2(sy, cy)
+        first = -Int(-((uMin - root) / ND_PI))
+        For k = 0 To 3
+            u = root + (first + k) * ND_PI
+            If u <= uMax Then NdArcPoint center, cx, cy, sx, sy, u, bounds, initialized
+        Next k
+    Next axis
+End Sub
+
+Private Sub NdArcPoint(ByVal center As Variant, ByVal cx As Double, ByVal cy As Double, ByVal sx As Double, ByVal sy As Double, _
+                       ByVal u As Double, ByRef bounds As NDBounds, ByRef initialized As Boolean)
+    Dim x As Double, y As Double
+    x = center(0) + cx * Cos(u) + sx * Sin(u)
+    y = center(1) + cy * Cos(u) + sy * Sin(u)
+    NdIncludePoint bounds, initialized, x, y
+End Sub
+
+Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Double, ByRef lines() As NDLine, ByRef lineCount As Long, _
+                           ByRef holes() As NDHole, ByRef holeCount As Long, ByRef bounds As NDBounds)
+    Dim components As Variant, edges As Variant, component As SldWorks.Component2, edge As SldWorks.Edge
+    Dim curve As SldWorks.Curve, vertexA As SldWorks.Vertex, vertexB As SldWorks.Vertex, parameters As Object
+    Dim utility As SldWorks.MathUtility, transform As SldWorks.MathTransform
+    Dim p As Variant, q As Variant, circleData As Variant, center As Variant, atZero As Variant, atQuarter As Variant
+    Dim normalPoint As Variant, uMin As Double, uMax As Double, initialized As Boolean, i As Long
+    lineCount = 0: holeCount = 0
+    components = view.GetVisibleComponents
+    If HasItems(components) = False Then Fail "Нет видимого компонента вида."
+    If UBound(components) - LBound(components) <> 0 Then Fail "Для размеров нужен один видимый компонент."
+    Set component = components(LBound(components))
+    If component Is Nothing Then Fail "Пустой видимый компонент."
+    edges = view.GetVisibleEntities2(component, swViewEntityType_Edge)
+    If HasItems(edges) = False Then Fail "Нет видимых рёбер для размеров."
+    ReDim lines(1 To UBound(edges) - LBound(edges) + 1)
+    ReDim holes(1 To UBound(edges) - LBound(edges) + 1)
+    Set utility = app.GetMathUtility
+    If utility Is Nothing Then Fail "Недоступен MathUtility."
+    Set transform = view.ModelToViewTransform
+    If transform Is Nothing Then Fail "Нет преобразования вида."
+    For i = LBound(edges) To UBound(edges)
+        Set edge = edges(i)
+        If edge Is Nothing Then Fail "Пустое ребро вида."
+        Set curve = edge.GetCurve
+        If curve Is Nothing Then Fail "Не прочитана кривая ребра."
+        If curve.IsLine Then
+            Set vertexA = edge.GetStartVertex
+            Set vertexB = edge.GetEndVertex
+            If vertexA Is Nothing Then Fail "Нет начала прямого ребра."
+            If vertexB Is Nothing Then Fail "Нет конца прямого ребра."
+            p = NdProject(utility, transform, vertexA.GetPoint)
+            q = NdProject(utility, transform, vertexB.GetPoint)
+            lineCount = lineCount + 1
+            lines(lineCount).X1 = p(0): lines(lineCount).Y1 = p(1)
+            lines(lineCount).X2 = q(0): lines(lineCount).Y2 = q(1)
+            Set lines(lineCount).Entity = edge
+            NdIncludePoint bounds, initialized, CDbl(p(0)), CDbl(p(1))
+            NdIncludePoint bounds, initialized, CDbl(q(0)), CDbl(q(1))
+        ElseIf curve.IsCircle Then
+            Set parameters = edge.GetCurveParams3
+            If parameters Is Nothing Then Fail "Нет параметров кругового ребра."
+            circleData = curve.CircleParams
+            If HasItems(circleData) = False Then Fail "Нет параметров окружности."
+            If LBound(circleData) <> 0 Or UBound(circleData) < 6 Then Fail "Неполные параметры окружности."
+            center = NdProject(utility, transform, Array(circleData(0), circleData(1), circleData(2)))
+            atZero = NdProject(utility, transform, curve.Evaluate2(0#, 0))
+            atQuarter = NdProject(utility, transform, curve.Evaluate2(ND_PI / 2#, 0))
+            uMin = parameters.UMinValue: uMax = parameters.UMaxValue
+            NdArcExtrema center, atZero, atQuarter, uMin, uMax, bounds, initialized
+            If NdFullCircle(uMin, uMax) Then
+                normalPoint = NdProject(utility, transform, Array(circleData(0) + circleData(3), circleData(1) + circleData(4), circleData(2) + circleData(5)))
+                If NdFaceOn(center, normalPoint) Then
+                    If NdInnerCylinder(edge) Then
+                        holeCount = holeCount + 1
+                        holes(holeCount).X = center(0): holes(holeCount).Y = center(1)
+                        holes(holeCount).Radius = CDbl(circleData(6)) * viewScale
+                        Set holes(holeCount).Entity = edge
+                    End If
+                End If
+            End If
+        Else
+            Fail "Сплайн, эллипс или иная неподдерживаемая кривая: габарит для размеров неоднозначен."
+        End If
+    Next i
+    If lineCount = 0 Or initialized = False Then Fail "Нет прямолинейного контура для размеров."
+End Sub
+
+Private Function NdInnerCylinder(ByVal edge As SldWorks.Edge) As Boolean
+    Dim faces As Variant, face As SldWorks.Face2, surface As SldWorks.Surface, i As Long
+    faces = edge.GetTwoAdjacentFaces2
+    If HasItems(faces) = False Then Fail "Не прочитаны соседние грани окружности."
+    For i = LBound(faces) To UBound(faces)
+        Set face = faces(i)
+        If Not face Is Nothing Then
+            Set surface = face.GetSurface
+            If Not surface Is Nothing Then
+                If surface.IsCylinder Then
+                    If face.FaceInSurfaceSense Then NdInnerCylinder = True
+                End If
+            End If
+        End If
+    Next i
+End Function
+
+Private Sub NdFindBounds(ByRef lines() As NDLine, ByVal count As Long, ByRef bounds As NDBounds, ByVal viewScale As Double)
+    bounds.LeftIndex = NdBoundary(lines, count, True, bounds.MinX, viewScale)
+    bounds.RightIndex = NdBoundary(lines, count, True, bounds.MaxX, viewScale)
+    bounds.BottomIndex = NdBoundary(lines, count, False, bounds.MinY, viewScale)
+    bounds.TopIndex = NdBoundary(lines, count, False, bounds.MaxY, viewScale)
+    If bounds.MaxX - bounds.MinX <= ND_MODEL_TOL * viewScale Or bounds.MaxY - bounds.MinY <= ND_MODEL_TOL * viewScale Then Fail "Вырожденный контур вида."
+    If bounds.LeftIndex = 0 Or bounds.RightIndex = 0 Or bounds.BottomIndex = 0 Or bounds.TopIndex = 0 Then
+        Fail "Нужен ортогональный вид с четырьмя прямыми на действительных крайних границах. Косые торцы автоматически не размеряются."
+    End If
+End Sub
+
+Private Function NdBetterBoundary(ByVal offset As Double, ByVal length As Double, ByVal bestOffset As Double, ByVal bestLength As Double) As Boolean
+    NdBetterBoundary = offset < bestOffset Or (offset = bestOffset And length > bestLength)
+End Function
+
+Private Function NdBoundary(ByRef lines() As NDLine, ByVal count As Long, ByVal vertical As Boolean, ByVal extreme As Double, ByVal viewScale As Double) As Long
+    Dim i As Long, length As Double, cross As Double, offset As Double, bestOffset As Double, bestLength As Double
+    bestOffset = 1E+300
+    For i = 1 To count
+        length = Sqr((lines(i).X2 - lines(i).X1) ^ 2 + (lines(i).Y2 - lines(i).Y1) ^ 2)
+        If vertical Then
+            cross = Abs(lines(i).X1 - lines(i).X2)
+            offset = Abs((lines(i).X1 + lines(i).X2) / 2# - extreme)
+        Else
+            cross = Abs(lines(i).Y1 - lines(i).Y2)
+            offset = Abs((lines(i).Y1 + lines(i).Y2) / 2# - extreme)
+        End If
+        If length > ND_MODEL_TOL * viewScale And cross <= length * 0.000001 And offset <= ND_DIAMETER_TOL * viewScale Then
+            If NdBetterBoundary(offset, length, bestOffset, bestLength) Then
+                NdBoundary = i
+                bestOffset = offset: bestLength = length
+            End If
+        End If
+    Next i
+End Function
+
+Private Function NdHoleBefore(ByRef holes() As NDHole, ByVal a As Long, ByVal b As Long, ByVal mode As Long) As Boolean
+    If mode = 1 Then
+        If holes(a).Radius <> holes(b).Radius Then
+            NdHoleBefore = holes(a).Radius < holes(b).Radius
+            Exit Function
+        End If
+    ElseIf mode = 2 Then
+        If holes(a).Y <> holes(b).Y Then
+            NdHoleBefore = holes(a).Y < holes(b).Y
+            Exit Function
+        End If
+    End If
+    If holes(a).X <> holes(b).X Then
+        NdHoleBefore = holes(a).X < holes(b).X
+    ElseIf holes(a).Y <> holes(b).Y Then
+        NdHoleBefore = holes(a).Y < holes(b).Y
+    Else
+        NdHoleBefore = holes(a).Radius < holes(b).Radius
+    End If
+End Function
+
+Private Sub NdSortIndices(ByRef holes() As NDHole, ByRef order() As Long, ByVal count As Long, ByVal mode As Long)
+    Dim i As Long, j As Long, value As Long
+    For i = 2 To count
+        value = order(i)
+        j = i - 1
+        Do While j >= 1
+            If NdHoleBefore(holes, value, order(j), mode) = False Then Exit Do
+            order(j + 1) = order(j)
+            j = j - 1
+        Loop
+        order(j + 1) = value
+    Next i
+End Sub
+
+Private Function NdPrepareHoles(ByRef holes() As NDHole, ByVal count As Long, ByRef bounds As NDBounds, ByVal viewScale As Double) As Collection
+    Dim result As Collection, order() As Long, i As Long, j As Long, index As Long, other As Long, duplicate As Boolean, tolerance As Double
+    Set result = New Collection
+    tolerance = ND_MODEL_TOL * viewScale
+    If count > 0 Then
+        ReDim order(1 To count)
+        For i = 1 To count: order(i) = i: Next i
+        NdSortIndices holes, order, count, 0
+        For i = 1 To count
+            index = order(i)
+            If NdFinite(holes(index).X) = False Or NdFinite(holes(index).Y) = False Or NdFinite(holes(index).Radius) = False Then Fail "Неконечная окружность."
+            If holes(index).Radius <= 0# Then Fail "Неположительный радиус отверстия."
+            If holes(index).X > bounds.MinX + tolerance And holes(index).X < bounds.MaxX - tolerance And _
+               holes(index).Y > bounds.MinY + tolerance And holes(index).Y < bounds.MaxY - tolerance Then
+                duplicate = False
+                For j = 1 To result.Count
+                    other = CLng(result(j))
+                    If NdPositionNear(holes(index).X, holes(other).X, viewScale) And NdPositionNear(holes(index).Y, holes(other).Y, viewScale) Then
+                        If NdDiameterNear(holes(index).Radius, holes(other).Radius, viewScale) = False Then Fail "Концентрические окружности разных диаметров: выбор отверстия неоднозначен."
+                        duplicate = True
+                        Exit For
+                    End If
+                Next j
+                If duplicate = False Then result.Add index
+            End If
+        Next i
+    End If
+    Set NdPrepareHoles = result
+End Function
+
+Private Function NdPositions(ByRef holes() As NDHole, ByVal selected As Collection, ByVal horizontal As Boolean, ByVal viewScale As Double) As Collection
+    Dim result As Collection, order() As Long, i As Long, j As Long, index As Long, other As Long, duplicate As Boolean
+    Dim first As Double, second As Double
+    Set result = New Collection
+    If selected.Count > 0 Then
+        ReDim order(1 To selected.Count)
+        For i = 1 To selected.Count: order(i) = CLng(selected(i)): Next i
+        If horizontal Then NdSortIndices holes, order, selected.Count, 0 Else NdSortIndices holes, order, selected.Count, 2
+        For i = 1 To selected.Count
+            index = order(i)
+            If horizontal Then first = holes(index).X Else first = holes(index).Y
+            duplicate = False
+            For j = 1 To result.Count
+                other = CLng(result(j))
+                If horizontal Then second = holes(other).X Else second = holes(other).Y
+                If NdPositionNear(first, second, viewScale) Then
+                    duplicate = True
+                    Exit For
+                End If
+            Next j
+            If duplicate = False Then result.Add index
+        Next i
+    End If
+    Set NdPositions = result
+End Function
+
+Private Function NdDiameterGroups(ByRef holes() As NDHole, ByVal selected As Collection, ByVal viewScale As Double) As Collection
+    Dim result As Collection, group As Collection, order() As Long, i As Long, j As Long, index As Long, representative As Long, found As Boolean
+    Set result = New Collection
+    If selected.Count > 0 Then
+        ReDim order(1 To selected.Count)
+        For i = 1 To selected.Count: order(i) = CLng(selected(i)): Next i
+        NdSortIndices holes, order, selected.Count, 1
+        For i = 1 To selected.Count
+            index = order(i)
+            found = False
+            For j = 1 To result.Count
+                Set group = result(j)
+                representative = CLng(group(1))
+                If NdDiameterNear(holes(index).Radius, holes(representative).Radius, viewScale) Then
+                    group.Add index
+                    found = True
+                    Exit For
+                End If
+            Next j
+            If found = False Then
+                Set group = New Collection
+                group.Add index
+                result.Add group
+            End If
+        Next i
+    End If
+    Set NdDiameterGroups = result
+End Function
+
+Private Sub NdSelectEdge(ByVal view As SldWorks.View, ByVal edge As SldWorks.Edge, ByVal append As Boolean)
+    If edge Is Nothing Then Fail "Нет ребра привязки размера."
+    If view.SelectEntity(edge, append) = False Then Fail "Не выбрано ребро в требуемом виде."
+End Sub
+
+Private Sub NdRegister(ByVal display As SldWorks.DisplayDimension, ByVal expectedValue As Double, ByVal created As Collection, ByVal expected As Collection)
+    If display Is Nothing Then Fail "SolidWorks не создал размер."
+    created.Add display
+    expected.Add expectedValue
+    drawingModel.ClearSelection2 True
+End Sub
+
+Private Sub NdAddLinear(ByVal view As SldWorks.View, ByVal datum As SldWorks.Edge, ByVal target As SldWorks.Edge, ByVal horizontal As Boolean, _
+                        ByVal x As Double, ByVal y As Double, ByVal expectedValue As Double, ByVal toCircle As Boolean, ByVal viewScale As Double, _
+                        ByVal created As Collection, ByVal expected As Collection)
+    Dim display As SldWorks.DisplayDimension, dimension As SldWorks.Dimension, i As Long, condition As Long
+    drawingModel.ClearSelection2 True
+    NdSelectEdge view, datum, False
+    NdSelectEdge view, target, True
+    If horizontal Then Set display = drawingModel.AddHorizontalDimension2(x, y, 0#) Else Set display = drawingModel.AddVerticalDimension2(x, y, 0#)
+    NdRegister display, expectedValue, created, expected
+    If horizontal Then
+        If display.Type2 <> swHorLinearDimension And display.Type2 <> swLinearDimension Then Fail "Создан размер другого типа вместо горизонтального."
+    Else
+        If display.Type2 <> swVertLinearDimension And display.Type2 <> swLinearDimension Then Fail "Создан размер другого типа вместо вертикального."
+    End If
+    Set dimension = display.GetDimension2(0)
+    If dimension Is Nothing Then Fail "Не прочитаны данные размера."
+    If toCircle Then
+        For i = 0 To 1
+            condition = dimension.GetArcEndCondition(i)
+            If condition >= swArcEndConditionCenter And condition <= swArcEndConditionMax Then
+                dimension.SetArcEndCondition i, swArcEndConditionCenter
+                If dimension.GetArcEndCondition(i) <> swArcEndConditionCenter Then Fail "Не подтверждена привязка размера к центру окружности."
+            End If
+        Next i
+    End If
+    NdValidate display, expectedValue, viewScale
+End Sub
+
+Private Sub NdValidate(ByVal display As SldWorks.DisplayDimension, ByVal expectedValue As Double, ByVal viewScale As Double)
+    Dim dimension As SldWorks.Dimension, actual As Double
+    If display Is Nothing Then Fail "Пустой созданный размер."
+    Set dimension = display.GetDimension2(0)
+    If dimension Is Nothing Then Fail "Нет значения созданного размера."
+    actual = dimension.SystemValue
+    If NdFinite(actual) = False Then Fail "Неконечное значение созданного размера."
+    WriteLog "VBA-размер: тип=" & CStr(display.Type2) & "; ожидалось мм=" & CStr(expectedValue / viewScale * 1000#) & "; получено мм=" & CStr(actual * 1000#)
+    If NdMatchesValue(actual, expectedValue, viewScale) = False Then Fail "Значение размера не совпало с геометрией. Возможна привязка к касательной."
+End Sub
+
+Private Sub NdValidateAll(ByVal created As Collection, ByVal expected As Collection, ByVal viewScale As Double)
+    Dim i As Long, display As SldWorks.DisplayDimension
+    If created.Count <> expected.Count Then Fail "Нарушен учёт созданных размеров."
+    For i = 1 To created.Count
+        Set display = created(i)
+        NdValidate display, CDbl(expected(i)), viewScale
+    Next i
+End Sub
+
+Private Function NdDimensionEnvelope(ByVal created As Collection, ByRef bounds As NDBounds) As Variant
+    Dim minX As Double, minY As Double, maxX As Double, maxY As Double, i As Long
+    Dim display As SldWorks.DisplayDimension, annotation As SldWorks.Annotation, point As Variant
+    minX = bounds.MinX: minY = bounds.MinY: maxX = bounds.MaxX: maxY = bounds.MaxY
+    If created.Count = 0 Then Fail "Нет подтверждённых размеров."
+    For i = 1 To created.Count
+        Set display = created(i)
+        Set annotation = display.GetAnnotation
+        If annotation Is Nothing Then Fail "Нет аннотации созданного размера."
+        point = annotation.GetPosition
+        If HasItems(point) = False Then Fail "Нет позиции размерной надписи."
+        If LBound(point) <> 0 Or UBound(point) < 1 Then Fail "Неполная позиция размерной надписи."
+        If NdFinite(CDbl(point(0))) = False Or NdFinite(CDbl(point(1))) = False Then Fail "Неконечная позиция надписи."
+        If point(0) < minX Then minX = point(0)
+        If point(0) > maxX Then maxX = point(0)
+        If point(1) < minY Then minY = point(1)
+        If point(1) > maxY Then maxY = point(1)
+    Next i
+    ' Anchor positions plus allowance, not exact glyph bounds.
+    NdDimensionEnvelope = Array(created.Count, minX - 0.015, minY - 0.015, maxX + 0.015, maxY + 0.015)
+End Function
+
+Private Function NdDeleteDimension(ByVal display As SldWorks.DisplayDimension) As Boolean
+    Dim annotation As SldWorks.Annotation, manager As SldWorks.SelectionMgr
+    On Error GoTo Failed
+    If display Is Nothing Then Exit Function
+    drawingModel.ClearSelection2 True
+    Set annotation = display.GetAnnotation
+    If annotation Is Nothing Then Exit Function
+    If annotation.Select3(False, Nothing) = False Then Exit Function
+    Set manager = drawingModel.SelectionManager
+    If manager Is Nothing Then Exit Function
+    If manager.GetSelectedObjectCount2(-1) <> 1 Then Exit Function
+    NdDeleteDimension = drawingModel.Extension.DeleteSelection2(0)
+    Exit Function
+Failed:
+    WriteLog "VBA-размеры: ошибка удаления нового размера: " & Err.Description
+End Function
+
+Private Function NdRollback(ByVal created As Collection) As String
+    Dim i As Long, display As SldWorks.DisplayDimension, failed As Long
+    If created Is Nothing Then Exit Function
+    For i = created.Count To 1 Step -1
+        Set display = created(i)
+        If NdDeleteDimension(display) = False Then failed = failed + 1
+    Next i
+    If failed > 0 Then NdRollback = vbCrLf & "Не все новые размеры удалось удалить; проверьте вид вручную."
+End Function
+
+Private Function NdRestorePosition(ByVal view As SldWorks.View, ByVal position As Variant) As String
+    Dim actual As Variant
+    On Error GoTo Failed
+    If view Is Nothing Then Exit Function
+    If HasItems(position) = False Then Exit Function
+    view.Position = position
+    drawingModel.EditRebuild3
+    actual = ReadPosition(view)
+    If Abs(actual(0) - position(0)) > 0.0001 Or Abs(actual(1) - position(1)) > 0.0001 Then NdRestorePosition = " Положение не восстановлено."
+    Exit Function
+Failed:
+    NdRestorePosition = " Ошибка восстановления положения: " & Err.Description
+End Function
+
+Private Function NdRestoreMode(ByVal view As SldWorks.View, ByVal modeKnown As Boolean, ByVal projectedBefore As Boolean) As String
+    On Error GoTo Failed
+    If view Is Nothing Then Exit Function
+    If modeKnown = False Then Exit Function
+    view.ProjectedDimensions = projectedBefore
+    drawingModel.EditRebuild3
+    If view.ProjectedDimensions <> projectedBefore Then NdRestoreMode = " Режим размеров не восстановлен."
+    Exit Function
+Failed:
+    NdRestoreMode = " Ошибка восстановления режима: " & Err.Description
+End Function
+
+Private Function NdRestore(ByVal view As SldWorks.View, ByVal position As Variant, ByVal modeKnown As Boolean, ByVal projectedBefore As Boolean) As String
+    ' Restoration attempts are independent: a position failure must not skip the mode.
+    NdRestore = NdRestorePosition(view, position) & NdRestoreMode(view, modeKnown, projectedBefore)
+End Function
+' END NATIVE DIMENSIONS ENGINE
