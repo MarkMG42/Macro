@@ -16,6 +16,10 @@
   "native_vba_compile": false,
   "native_solidworks_run": false,
   "native_solidworks_load": false,
-  "binary_status": "experimental source-only SWP; requires native load/Compile/save",
-  "technique_reference": "https://github.com/mandiant/OfficePurge/tree/0e838faa8e3a887ecf3c74e810ce62acd230f53d"
+  "binary_status": "withdrawn: user reports SOLIDWORKS cannot open rebuilt SWP",
+  "technique_reference": "https://github.com/mandiant/OfficePurge/tree/0e838faa8e3a887ecf3c74e810ce62acd230f53d",
+  "distributed": false,
+  "user_reported_load_failure": true,
+  "failure_cause": "undetermined; generic file-open error, not a VBA compilation diagnostic",
+  "user_reported_error": "SOLIDWORKS: Невозможно открыть файл (screenshot provided)"
 }

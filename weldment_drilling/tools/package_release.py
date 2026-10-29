@@ -20,16 +20,14 @@ def main():
     grammar = json.loads((ROOT / 'checks/grammar.json').read_text())
     assert not grammar['errors'], 'VBA grammar errors'
     assert grammar['source_sha256'] == sha(source), 'Rerun grammar validation for this source'
-    swp = ROOT / 'Сверловка_исправлено.swp'
-    if swp.exists():
-        binary = json.loads((ROOT / 'checks/swp.json').read_text())
-        assert binary['output_sha256'] == sha(swp), 'SWP checksum mismatch'
-        assert binary['source_sha256'] == sha(source), 'Rebuild SWP after modifying source'
-        assert binary['import_module_sha256'] == sha(module), 'SWP module differs from exported BAS'
+    # Source-only container rebuilding failed in the user's SOLIDWORKS host.
+    # Do not accidentally redistribute an unsupported binary in a source release.
+    assert not list(ROOT.rglob('*.swp')), 'Do not ship SWP without native load validation'
     report = dict(source_sha256=sha(source), import_module_sha256=sha(module),
                   original_module_sha256=sha(ROOT / 'original/InsertWeldWithHoles.bas'),
                   native_vba_compile=False, native_solidworks_run=False,
-                  binary_swp_rebuilt=swp.exists(), native_solidworks_load=False, original_swp_sha256=
+                  binary_swp_rebuilt=False, binary_swp_withdrawn=True,
+                  native_solidworks_load=False, original_swp_sha256=
                   'ed7d9dc23db5bead52dc6208b314897fd7c96cf735f4ce82b0f945101c82363e')
     (ROOT / 'checks/release.json').write_text(json.dumps(report, indent=2) + '\n')
     archive = ROOT / 'Drilling_Reviewed.zip'

@@ -4,7 +4,8 @@
   "original_module_sha256": "1fb2d8e754c5db9e1721d3248c719dc37133fdb988c834bff2c56c77a49bf3b2",
   "native_vba_compile": false,
   "native_solidworks_run": false,
-  "binary_swp_rebuilt": true,
+  "binary_swp_rebuilt": false,
+  "binary_swp_withdrawn": true,
   "native_solidworks_load": false,
   "original_swp_sha256": "ed7d9dc23db5bead52dc6208b314897fd7c96cf735f4ce82b0f945101c82363e"
 }
