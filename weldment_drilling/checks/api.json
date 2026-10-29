@@ -1,0 +1,333 @@
+{
+  "validation": "Read-only .NET assembly metadata audit; not a native VBA compile or SOLIDWORKS execution",
+  "version": "32.1.0",
+  "sources": [
+    {
+      "url": "https://api.nuget.org/v3-flatcontainer/solidworks.interop.sldworks/32.1.0/solidworks.interop.sldworks.32.1.0.nupkg",
+      "sha256": "b5eaea9758a3c0923ba92b73565d3201e7bca945dd2e9cfe24462da3c2365a1e"
+    },
+    {
+      "url": "https://api.nuget.org/v3-flatcontainer/solidworks.interop.swconst/32.1.0/solidworks.interop.swconst.32.1.0.nupkg",
+      "sha256": "077a1d3c334e9aa2a4ecb5b4baff3a43714391d6572d2101af3f0082ccdbb73d"
+    }
+  ],
+  "members": [
+    {
+      "interface": "IModelView",
+      "member": "get_Orientation3",
+      "exists": true,
+      "signature_blob_hex": "20001284f4",
+      "parameter_names": []
+    },
+    {
+      "interface": "IModelView",
+      "member": "set_Orientation3",
+      "exists": true,
+      "signature_blob_hex": "2001011284f4",
+      "parameter_names": [
+        "Xform"
+      ]
+    },
+    {
+      "interface": "IView",
+      "member": "SetName2",
+      "exists": true,
+      "signature_blob_hex": "2001020e",
+      "parameter_names": [
+        "Name"
+      ]
+    },
+    {
+      "interface": "IView",
+      "member": "InsertWeldmentTable",
+      "exists": true,
+      "signature_blob_hex": "2006128dcc020d0d080e0e",
+      "parameter_names": [
+        "UseAnchorPoint",
+        "X",
+        "Y",
+        "AnchorType",
+        "Configuration",
+        "TableTemplate"
+      ]
+    },
+    {
+      "interface": "IView",
+      "member": "GetVisibleComponents",
+      "exists": true,
+      "signature_blob_hex": "20001c",
+      "parameter_names": []
+    },
+    {
+      "interface": "IView",
+      "member": "GetVisibleEntities2",
+      "exists": true,
+      "signature_blob_hex": "20021c12867408",
+      "parameter_names": [
+        "LpViewComponent",
+        "EntityType"
+      ]
+    },
+    {
+      "interface": "IView",
+      "member": "GetCorrespondingEntity",
+      "exists": true,
+      "signature_blob_hex": "20011c1c",
+      "parameter_names": [
+        "Entity"
+      ]
+    },
+    {
+      "interface": "IView",
+      "member": "SelectEntity",
+      "exists": true,
+      "signature_blob_hex": "2002021c02",
+      "parameter_names": [
+        "Entity",
+        "AppendFlag"
+      ]
+    },
+    {
+      "interface": "IAnnotation",
+      "member": "SetPosition2",
+      "exists": true,
+      "signature_blob_hex": "2003020d0d0d",
+      "parameter_names": [
+        "X",
+        "Y",
+        "Z"
+      ]
+    },
+    {
+      "interface": "IModelDoc2",
+      "member": "NameView",
+      "exists": true,
+      "signature_blob_hex": "2001010e",
+      "parameter_names": [
+        "VName"
+      ]
+    },
+    {
+      "interface": "IModelDoc2",
+      "member": "DeleteNamedView",
+      "exists": true,
+      "signature_blob_hex": "2001020e",
+      "parameter_names": [
+        "ViewName"
+      ]
+    },
+    {
+      "interface": "IModelDoc2",
+      "member": "GetModelViewNames",
+      "exists": true,
+      "signature_blob_hex": "20001c",
+      "parameter_names": []
+    },
+    {
+      "interface": "IModelDoc2",
+      "member": "GetNamedViews",
+      "exists": false
+    },
+    {
+      "interface": "ISelectData",
+      "member": "set_View",
+      "exists": true,
+      "signature_blob_hex": "2001011280f4",
+      "parameter_names": [
+        "View"
+      ]
+    },
+    {
+      "interface": "ITableAnnotation",
+      "member": "GetAnnotation",
+      "exists": true,
+      "signature_blob_hex": "20001282f0",
+      "parameter_names": []
+    },
+    {
+      "interface": "IBodyFolder",
+      "member": "UpdateCutList",
+      "exists": true,
+      "signature_blob_hex": "200002",
+      "parameter_names": []
+    },
+    {
+      "interface": "IWeldmentCutListAnnotation",
+      "member": "GetAnnotation",
+      "exists": false
+    },
+    {
+      "interface": "ISldWorks",
+      "member": "GetMathUtility",
+      "exists": true,
+      "signature_blob_hex": "20001c",
+      "parameter_names": []
+    },
+    {
+      "interface": "ISldWorks",
+      "member": "IsSame",
+      "exists": true,
+      "signature_blob_hex": "2002081c1c",
+      "parameter_names": [
+        "Object1",
+        "Object2"
+      ]
+    },
+    {
+      "interface": "IView",
+      "member": "get_ModelToViewTransform",
+      "exists": true,
+      "signature_blob_hex": "20001284f4",
+      "parameter_names": []
+    },
+    {
+      "interface": "IView",
+      "member": "SetDisplayMode4",
+      "exists": true,
+      "signature_blob_hex": "2005020208020202",
+      "parameter_names": [
+        "UseParent",
+        "Mode",
+        "Faceted",
+        "Edges",
+        "CThreadHighQuality"
+      ]
+    },
+    {
+      "interface": "IView",
+      "member": "get_Bodies",
+      "exists": true,
+      "signature_blob_hex": "20001c",
+      "parameter_names": []
+    },
+    {
+      "interface": "IView",
+      "member": "set_Bodies",
+      "exists": true,
+      "signature_blob_hex": "2001011c",
+      "parameter_names": [
+        "BodyArray"
+      ]
+    },
+    {
+      "interface": "IMathUtility",
+      "member": "CreateVector",
+      "exists": true,
+      "signature_blob_hex": "20011c1c",
+      "parameter_names": [
+        "ArrayDataIn"
+      ]
+    },
+    {
+      "interface": "IMathUtility",
+      "member": "CreateTransform",
+      "exists": true,
+      "signature_blob_hex": "20011c1c",
+      "parameter_names": [
+        "ArrayDataIn"
+      ]
+    },
+    {
+      "interface": "IMathVector",
+      "member": "MultiplyTransform",
+      "exists": true,
+      "signature_blob_hex": "20011c1c",
+      "parameter_names": [
+        "TransformObjIn"
+      ]
+    },
+    {
+      "interface": "IMathVector",
+      "member": "get_ArrayData",
+      "exists": true,
+      "signature_blob_hex": "20001c",
+      "parameter_names": []
+    }
+  ],
+  "constants": [
+    {
+      "enum": "swDocumentTypes_e",
+      "name": "swDocPART",
+      "value": 1
+    },
+    {
+      "enum": "swDocumentTypes_e",
+      "name": "swDocDRAWING",
+      "value": 3
+    },
+    {
+      "enum": "swObjectEquality",
+      "name": "swObjectSame",
+      "value": 1
+    },
+    {
+      "enum": "swSelectType_e",
+      "name": "swSelDRAWINGVIEWS",
+      "value": 12
+    },
+    {
+      "enum": "swDisplayMode_e",
+      "name": "swHIDDEN_GREYED",
+      "value": 1
+    },
+    {
+      "enum": "swDisplayMode_e",
+      "name": "swHIDDEN",
+      "value": 2
+    },
+    {
+      "enum": "swBalloonStyle_e",
+      "name": "swBS_None",
+      "value": 0
+    },
+    {
+      "enum": "swBalloonTextContent_e",
+      "name": "swBalloonTextItemNumber",
+      "value": 1
+    },
+    {
+      "enum": "swDrawingViewTypes_e",
+      "name": "swDrawingSheet",
+      "value": 1
+    },
+    {
+      "enum": "swDrawingViewTypes_e",
+      "name": "swDrawingNamedView",
+      "value": 7
+    },
+    {
+      "enum": "swDisplayTangentEdges_e",
+      "name": "swTangentEdgesHidden",
+      "value": 0
+    },
+    {
+      "enum": "swRebuildOnActivation_e",
+      "name": "swDontRebuildActiveDoc",
+      "value": 1
+    },
+    {
+      "enum": "swViewEntityType_e",
+      "name": "swViewEntityType_Edge",
+      "value": 1
+    },
+    {
+      "enum": "swDeleteSelectionOptions_e",
+      "name": "swDelete_Absorbed",
+      "value": 2
+    }
+  ],
+  "unknown_constants": [],
+  "findings": [
+    "IModelDoc2.GetNamedViews is absent; GetModelViewNames is present.",
+    "IWeldmentCutListAnnotation lacks GetAnnotation; query the same COM table object as ITableAnnotation and call GetAnnotation there.",
+    "IView.SetName2 returns Boolean (signature element type 02).",
+    "IModelView.Orientation3 getter/setter accept MathTransform; NameView returns Void; DeleteNamedView returns Boolean.",
+    "Visibility APIs and MathUtility/MathVector members present in 32.1.0; swHIDDEN and swHIDDEN_GREYED enum values included below."
+  ],
+  "limitations": [
+    "Official help.solidworks.com request returned HTTP 403. NuGet metadata does not establish behavior on the user version.",
+    "COM interface casting, geometry visibility, view orientation and table/balloon association require native SOLIDWORKS tests.",
+    "VBA object-property assignment semantics cannot be established by .NET metadata alone.",
+    "Visible edge identity does not guarantee complete unoccluded projected circle; GetVisibleEntities2 reports whole topological edges that may be partially visible."
+  ]
+}

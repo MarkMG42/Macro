@@ -1,0 +1,21 @@
+{
+  "original_sha256": "ed7d9dc23db5bead52dc6208b314897fd7c96cf735f4ce82b0f945101c82363e",
+  "output_sha256": "a58ccd43c79613aae0af8753d016b5b6311eb7d5a4521c62c176281e843c7074",
+  "source_sha256": "a443c65d6488631072ec35cd83cdfd8eac44346b15bc11171264e04f3d61e81e",
+  "import_module_sha256": "53fbf38e1b77986e811fbda14a855491329a0e630fae724908395dedef8c2fd8",
+  "technique": "source-only VBA; all module performance caches removed; project cache reset",
+  "module_count": 6,
+  "changed_source_modules": [
+    "InsertWeldWithHoles"
+  ],
+  "all_other_module_sources_byte_identical": true,
+  "other_ole_streams_byte_identical": true,
+  "all_module_source_offsets_zero": true,
+  "container_reopened_with_olefile": true,
+  "all_sources_reextracted_with_oletools": true,
+  "native_vba_compile": false,
+  "native_solidworks_run": false,
+  "native_solidworks_load": false,
+  "binary_status": "experimental source-only SWP; requires native load/Compile/save",
+  "technique_reference": "https://github.com/mandiant/OfficePurge/tree/0e838faa8e3a887ecf3c74e810ce62acd230f53d"
+}

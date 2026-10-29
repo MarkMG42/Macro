@@ -1,0 +1,9 @@
+{
+  "target": "InsertWeldWithHoles.txt",
+  "grammar": "grammars-v4/vba/vba7_1",
+  "grammar_commit": "2766c2eed04f285dc763617c9459650892fcf5b9",
+  "antlr_version": "4.13.2",
+  "native_vba_compile": false,
+  "source_sha256": "a443c65d6488631072ec35cd83cdfd8eac44346b15bc11171264e04f3d61e81e",
+  "errors": []
+}
