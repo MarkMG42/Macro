@@ -2,8 +2,8 @@
   "build_id": "DRILL_COPY_VIEW_R14_BALLOONS_20261029",
   "runtime": "SOLIDWORKS VBA only",
   "source_sha256": {
-    "InsertWeldWithHoles.txt": "b49e6d2446f643da9d55cd90a2aab454d8ab738b15189af6f535793877c2a14e",
-    "source/native_dimensions.vba": "8d4d76be483e142b48e4405d96c38fc0f9285466fb5f428c8e84f5595be02b80",
+    "InsertWeldWithHoles.txt": "0c12946611309040afd3dfbd3f2b6fd5cb56af7bad2e3d7b563a4dab91623e4e",
+    "source/native_dimensions.vba": "6e93c09130babbc1e9cb91d802e2a328921c99a17fae548268bae1ef043419c7",
     "source/native_dimensions_declarations.vba": "c856b5ee548939932dd4c7e25db09da7183fa516a913db859a072956af9d25db"
   },
   "assemblies": [

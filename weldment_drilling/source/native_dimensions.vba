@@ -341,7 +341,7 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
                                     ByVal created As Collection, ByVal expected As Collection) As Boolean
     Dim plan As Variant, breakLine As SldWorks.BreakLine, secondLine As SldWorks.BreakLine, outline As Variant
     Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
-    Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean
+    Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean, gapChanged As Boolean
     Dim failure As String, rollback As String, firstX As Double, secondX As Double, middleY As Double
     Dim breakLines As Variant
     plan = NdBreakPlan(holes, holeCount, bounds)
@@ -363,10 +363,11 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
              "; линии на листе X=" & CStr(firstX) & "..." & CStr(secondX) & "; Y=" & CStr(middleY)
     oldGap = view.BreakLineGap
     view.BreakLineGap = BREAK_GAP
+    gapChanged = True
     SelectDrawingView view
-    inserted = True
     Set breakLine = view.InsertBreak3(swBreakLineVertical, firstX, middleY, swBreakLine_Curve, 0, True)
     If breakLine Is Nothing Then Fail "SOLIDWORKS не создал первую линию разрыва."
+    inserted = True
     Set secondLine = view.InsertBreak3(swBreakLineVertical, secondX, middleY, swBreakLine_Curve, 0, True)
     If secondLine Is Nothing Then Fail "SOLIDWORKS не создал вторую линию разрыва."
     breakLines = view.GetBreakLines
@@ -386,13 +387,19 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     Exit Function
 Failed:
     failure = Err.Description
+    If inserted = False Then
+        On Error Resume Next
+        breakLines = view.GetBreakLines
+        inserted = HasItems(breakLines)
+        On Error GoTo 0
+    End If
     If inserted Then
         On Error GoTo 0
         rollback = NdUndoBreak(view, bounds.MaxX - bounds.MinX)
         If InStr(rollback, "ОШИБКА") > 0 Then Fail "Не удалось отменить ошибочный разрыв вида [" & currentView & "]: " & failure & rollback
-        view.BreakLineGap = oldGap
         NdValidateAll created, expected, viewScale
     End If
+    If gapChanged Then view.BreakLineGap = oldGap
     WriteLog "Разрыв пропущен: " & failure
     breakWarnings.Add "Вид [" & currentView & "]: разрыв пропущен; " & failure
 End Function

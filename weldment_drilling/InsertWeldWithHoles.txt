@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R14_BALLOONS_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R15_GUARDS_20261029"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -33,6 +33,7 @@ Private sourceSheetName As String
 Private madeViews As Collection
 Private madeBodyNames As Collection
 Private madeTable As SldWorks.WeldmentCutListAnnotation
+Private madeTableReady As Boolean
 Private visited As Object
 Private skipped As Collection
 Private orientationWarnings As Collection
@@ -104,6 +105,7 @@ Public Sub start()
     balloonsCompleted = 0
     balloonsFailed = 0
     Set madeTable = Nothing
+    madeTableReady = False
     Set partModel = Nothing
     Set drawingModel = Nothing
     oldConfig = ""
@@ -167,8 +169,11 @@ Public Sub start()
         message = "Отменено."
         GoTo Finished
     End If
-    tableTemplate = ResolveTableTemplate()
-    If TryInsertOutsideCutList(source, config, width, height, tableTemplate, tableWarning) = False Then
+    tableTemplate = TryResolveTableTemplate(tableWarning)
+    If Len(tableTemplate) > 0 Then
+        If TryInsertOutsideCutList(source, config, width, height, tableTemplate, tableWarning) = False Then _
+            WriteLog "Предупреждение таблицы: " & tableWarning
+    Else
         WriteLog "Предупреждение таблицы: " & tableWarning
     End If
     For i = 1 To bodies.Count
@@ -454,6 +459,14 @@ Private Function ResolveTableTemplate() As String
     Fail "Не найден доступный шаблон .sldwldtbt; таблица не создана."
 End Function
 
+Private Function TryResolveTableTemplate(ByRef warning As String) As String
+    On Error GoTo Unavailable
+    TryResolveTableTemplate = ResolveTableTemplate()
+    Exit Function
+Unavailable:
+    warning = Err.Description
+End Function
+
 Private Function TryInsertOutsideCutList(ByVal source As SldWorks.View, ByVal config As String, _
                                          ByVal sheetWidth As Double, ByVal sheetHeight As Double, _
                                          ByVal tableTemplate As String, ByRef warning As String) As Boolean
@@ -509,9 +522,11 @@ Private Function TryInsertOutsideCutList(ByVal source As SldWorks.View, ByVal co
     If CDbl(position(0)) < sheetWidth Then Fail "Таблица осталась на листе."
     If table.RowCount < 2 Then Fail "Таблица списка вырезов не содержит позиций."
     WriteLog "Список вырезов: строк=" & CStr(table.RowCount) & "; X=" & CStr(CDbl(position(0)))
+    madeTableReady = True
     TryInsertOutsideCutList = True
     Exit Function
 Failed:
+    madeTableReady = False
     warning = Err.Description
     cleanup = CleanupTable()
     If Len(cleanup) > 0 Then warning = warning & " " & cleanup
@@ -1287,7 +1302,7 @@ End Function
 Private Sub AddPositions()
     Dim i As Long, view As SldWorks.View, warning As String
     On Error GoTo Failed
-    If madeTable Is Nothing Then
+    If madeTableReady = False Or madeTable Is Nothing Then
         balloonsFailed = madeViews.Count
         balloonWarnings.Add "Таблица списка вырезов не создана: связанные позиции и количество пропущены."
         Exit Sub
@@ -1454,6 +1469,7 @@ End Function
 Private Function CleanupTable() As String
     Dim table As SldWorks.TableAnnotation, annotation As SldWorks.Annotation
     On Error GoTo Failed
+    madeTableReady = False
     If madeTable Is Nothing Then Exit Function
     Set table = madeTable
     Set annotation = table.GetAnnotation
@@ -1462,6 +1478,7 @@ Private Function CleanupTable() As String
     If annotation.Select3(False, Nothing) = False Then GoTo Failed
     If drawingModel.Extension.DeleteSelection2(swDelete_Absorbed) = False Then GoTo Failed
     Set madeTable = Nothing
+    madeTableReady = False
     CleanupTable = "Созданная этим запуском таблица удалена."
     Exit Function
 Failed:
@@ -1944,7 +1961,7 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
                                     ByVal created As Collection, ByVal expected As Collection) As Boolean
     Dim plan As Variant, breakLine As SldWorks.BreakLine, secondLine As SldWorks.BreakLine, outline As Variant
     Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
-    Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean
+    Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean, gapChanged As Boolean
     Dim failure As String, rollback As String, firstX As Double, secondX As Double, middleY As Double
     Dim breakLines As Variant
     plan = NdBreakPlan(holes, holeCount, bounds)
@@ -1966,10 +1983,11 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
              "; линии на листе X=" & CStr(firstX) & "..." & CStr(secondX) & "; Y=" & CStr(middleY)
     oldGap = view.BreakLineGap
     view.BreakLineGap = BREAK_GAP
+    gapChanged = True
     SelectDrawingView view
-    inserted = True
     Set breakLine = view.InsertBreak3(swBreakLineVertical, firstX, middleY, swBreakLine_Curve, 0, True)
     If breakLine Is Nothing Then Fail "SOLIDWORKS не создал первую линию разрыва."
+    inserted = True
     Set secondLine = view.InsertBreak3(swBreakLineVertical, secondX, middleY, swBreakLine_Curve, 0, True)
     If secondLine Is Nothing Then Fail "SOLIDWORKS не создал вторую линию разрыва."
     breakLines = view.GetBreakLines
@@ -1989,13 +2007,19 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     Exit Function
 Failed:
     failure = Err.Description
+    If inserted = False Then
+        On Error Resume Next
+        breakLines = view.GetBreakLines
+        inserted = HasItems(breakLines)
+        On Error GoTo 0
+    End If
     If inserted Then
         On Error GoTo 0
         rollback = NdUndoBreak(view, bounds.MaxX - bounds.MinX)
         If InStr(rollback, "ОШИБКА") > 0 Then Fail "Не удалось отменить ошибочный разрыв вида [" & currentView & "]: " & failure & rollback
-        view.BreakLineGap = oldGap
         NdValidateAll created, expected, viewScale
     End If
+    If gapChanged Then view.BreakLineGap = oldGap
     WriteLog "Разрыв пропущен: " & failure
     breakWarnings.Add "Вид [" & currentView & "]: разрыв пропущен; " & failure
 End Function

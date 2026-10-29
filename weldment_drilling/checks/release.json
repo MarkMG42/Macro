@@ -1,8 +1,8 @@
 {
-  "source_sha256": "b49e6d2446f643da9d55cd90a2aab454d8ab738b15189af6f535793877c2a14e",
-  "import_module_sha256": "fb662537755e65271ff1b6f0958d1768bfec36aeadc5b721ba0946c03ceec575",
+  "source_sha256": "0c12946611309040afd3dfbd3f2b6fd5cb56af7bad2e3d7b563a4dab91623e4e",
+  "import_module_sha256": "9130c210567ff9d0937b6e828f0e81583f4e1b931a781495725ab853a04f5524",
   "original_module_sha256": "1fb2d8e754c5db9e1721d3248c719dc37133fdb988c834bff2c56c77a49bf3b2",
-  "build_id": "DRILL_COPY_VIEW_R14_BALLOONS_20261029",
+  "build_id": "DRILL_COPY_VIEW_R15_GUARDS_20261029",
   "workflow": "Copy source drawing view, filter body, inspect six directions",
   "native_vba_compile": false,
   "native_solidworks_run": false,

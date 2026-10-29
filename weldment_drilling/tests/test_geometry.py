@@ -205,7 +205,7 @@ class CoreTests(unittest.TestCase):
         self.assertIn('Private Const ADD_BALLOONS As Boolean = True',SOURCE)
         self.assertIn('madeBodyNames.Add currentBody',body('ProcessBody'))
         positions=body('AddPositions')
-        self.assertIn('If madeTable Is Nothing Then',positions)
+        self.assertIn('If madeTableReady = False Or madeTable Is Nothing Then',positions)
         self.assertIn('madeBodyNames.Count <> madeViews.Count',positions)
         self.assertIn('currentBody = CStr(madeBodyNames(i))',positions)
         balloon=body('TryAddPosition')

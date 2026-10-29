@@ -39,7 +39,7 @@ def main():
     assert not list(ROOT.rglob('*.swp')), 'Do not ship SWP without native load validation'
     report = dict(source_sha256=sha(source), import_module_sha256=sha(module),
                   original_module_sha256=sha(ROOT / 'original/InsertWeldWithHoles.bas'),
-                  build_id='DRILL_COPY_VIEW_R14_BALLOONS_20261029', workflow='Copy source drawing view, filter body, inspect six directions',
+                  build_id='DRILL_COPY_VIEW_R15_GUARDS_20261029', workflow='Copy source drawing view, filter body, inspect six directions',
                   native_vba_compile=False, native_solidworks_run=False,
                   runtime='SOLIDWORKS VBA only', external_dll_required=False, administrator_required=False,
                   binary_swp_rebuilt=False, binary_swp_withdrawn=True,
