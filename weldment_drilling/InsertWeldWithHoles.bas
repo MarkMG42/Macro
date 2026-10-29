@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R10_CUTLIST_BREAK_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R11_TABLE_PATH_20261029"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = False
@@ -20,7 +20,7 @@ Private Const SIDE_MARGIN As Double = 0.02
 Private Const BOTTOM_MARGIN As Double = 0.04
 Private Const EPS As Double = 0.0000001
 Private Const VIEW_PREFIX As String = "DRILL_"
-Private Const TABLE_TEMPLATE As String = ""
+Private Const TABLE_TEMPLATE As String = "\\192.168.1.14\SolidWorks\Библиотека Solid Works НОВАЯ\Шаблоны\Сварные конструкции.sldwldtbt"
 Private app As SldWorks.SldWorks
 Private drawingModel As SldWorks.ModelDoc2
 Private drawing As SldWorks.DrawingDoc
@@ -382,19 +382,37 @@ Private Sub UpdateCutList()
 End Sub
 
 Private Function TableFileExists(ByVal filename As String) As Boolean
+    Dim files As Object
     If Len(filename) = 0 Then Exit Function
-    On Error GoTo Missing
+    If LCase$(Right$(filename, 10)) <> ".sldwldtbt" Then Exit Function
+    On Error Resume Next
     TableFileExists = (Len(Dir$(filename)) > 0)
-Missing:
+    If TableFileExists = False Then
+        Err.Clear
+        Set files = CreateObject("Scripting.FileSystemObject")
+        If Not files Is Nothing Then TableFileExists = files.FileExists(filename)
+    End If
+    On Error GoTo 0
+End Function
+
+Private Function NormalizeTablePath(ByVal filename As String) As String
+    filename = Trim$(filename)
+    If Len(filename) >= 2 Then
+        If Left$(filename, 1) = """" And Right$(filename, 1) = """" Then filename = Mid$(filename, 2, Len(filename) - 2)
+    End If
+    If Left$(filename, 1) = "\" And Mid$(filename, 2, 1) <> "\" Then filename = "\" & filename
+    NormalizeTablePath = filename
 End Function
 
 Private Function ResolveTableTemplate() As String
     Dim executable As String, folder As String, candidate As String
     Dim language As Variant
     If Len(TABLE_TEMPLATE) > 0 Then
-        If TableFileExists(TABLE_TEMPLATE) = False Then Fail "Не найден указанный шаблон списка вырезов: " & TABLE_TEMPLATE
-        ResolveTableTemplate = TABLE_TEMPLATE
-        Exit Function
+        candidate = NormalizeTablePath(TABLE_TEMPLATE)
+        If TableFileExists(candidate) Then
+            ResolveTableTemplate = candidate
+            Exit Function
+        End If
     End If
     executable = app.GetExecutablePath
     If InStrRev(executable, "\") > 0 Then folder = Left$(executable, InStrRev(executable, "\") - 1)
@@ -405,9 +423,10 @@ Private Function ResolveTableTemplate() As String
             Exit Function
         End If
     Next language
-    candidate = InputBox("Шаблон списка вырезов не найден рядом с SOLIDWORKS. " & _
-                         "Укажите полный путь к .sldwldtbt или задайте TABLE_TEMPLATE в начале модуля.", _
-                         "Шаблон списка вырезов")
+    candidate = InputBox("Шаблон списка вырезов недоступен. Укажите полный путь к файлу .sldwldtbt. " & _
+                         "Файл .sldbomtbt относится к другой таблице.", _
+                         "Шаблон списка вырезов", TABLE_TEMPLATE)
+    candidate = NormalizeTablePath(candidate)
     If TableFileExists(candidate) Then
         ResolveTableTemplate = candidate
         Exit Function

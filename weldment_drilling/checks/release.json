@@ -1,8 +1,8 @@
 {
-  "source_sha256": "d1ab0d5fb79e3585391381a4c030a89ad93b63021f70760d04a4cc0324e725dd",
-  "import_module_sha256": "4301569422dbbe8fdd5e446f3ed7791f7192224f1f6a9b0307113f54cb12da05",
+  "source_sha256": "d78864befc692ff05075c19aa6b9d39d69855b6f6380253f5b9726bba4897553",
+  "import_module_sha256": "efcf70e3e61ed7f311b7013f95afe112c3bcd0c69a04e3d97fd2dffd164da793",
   "original_module_sha256": "1fb2d8e754c5db9e1721d3248c719dc37133fdb988c834bff2c56c77a49bf3b2",
-  "build_id": "DRILL_COPY_VIEW_R10_CUTLIST_BREAK_20261029",
+  "build_id": "DRILL_COPY_VIEW_R11_TABLE_PATH_20261029",
   "workflow": "Copy source drawing view, filter body, inspect six directions",
   "native_vba_compile": false,
   "native_solidworks_run": false,

@@ -22,6 +22,6 @@
   ],
   "unexpected_findings": [],
   "reason": "Snapshot predates explicitly requested drilling work and R6 integration. R7 ports dimensions into native VBA; earlier authorized AutoSizeDrilling source extensions remain unchanged, only its related README is updated. Immutable baseline is preserved.",
-  "current_build_id": "DRILL_COPY_VIEW_R10_CUTLIST_BREAK_20261029",
+  "current_build_id": "DRILL_COPY_VIEW_R11_TABLE_PATH_20261029",
   "native_solidworks_run": false
 }

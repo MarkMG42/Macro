@@ -1,8 +1,8 @@
 {
-  "build_id": "DRILL_COPY_VIEW_R10_CUTLIST_BREAK_20261029",
+  "build_id": "DRILL_COPY_VIEW_R11_TABLE_PATH_20261029",
   "runtime": "SOLIDWORKS VBA only",
   "source_sha256": {
-    "InsertWeldWithHoles.txt": "d1ab0d5fb79e3585391381a4c030a89ad93b63021f70760d04a4cc0324e725dd",
+    "InsertWeldWithHoles.txt": "d78864befc692ff05075c19aa6b9d39d69855b6f6380253f5b9726bba4897553",
     "source/native_dimensions.vba": "7ee64042feb8ae50ed6b51a69d3cf170d3f29817eafe576a1f8fe46f242ed4bd",
     "source/native_dimensions_declarations.vba": "c856b5ee548939932dd4c7e25db09da7183fa516a913db859a072956af9d25db"
   },

@@ -204,7 +204,7 @@ class CoreTests(unittest.TestCase):
         for external in ['DIMENSIONS_PROGID','ProcessSelectedView','RegAsm','Shell','CreateProcess','GetActiveObject','RunMacro2','Declare ']:
             self.assertNotIn(external,code)
         created=re.findall(r'CreateObject\(([^)]+)\)',code)
-        self.assertTrue(all(value=='"Scripting.Dictionary"' for value in created))
+        self.assertTrue(all(value in {'"Scripting.Dictionary"','"Scripting.FileSystemObject"'} for value in created))
 
     def test_native_dimension_failure_is_explicit_and_preserves_body_views(self):
         engine=body('NativeDimensionView')
@@ -311,6 +311,14 @@ class CoreTests(unittest.TestCase):
         self.assertIn('If table.RowCount < 2 Then Fail',code)
         self.assertEqual(assignment('PlaceDetail','cursorY',dict(outline=[0,.12,.2,.2],GAP=.01)),.11)
         self.assertIn('Private Const GAP As Double = 0.01',SOURCE)
+
+    def test_cut_list_template_cannot_be_confused_with_bom_template(self):
+        configured=re.search(r'^Private Const TABLE_TEMPLATE As String = "(.*)"$',SOURCE,re.M)[1]
+        self.assertTrue(configured.startswith('\\\\'))
+        self.assertTrue(configured.lower().endswith('.sldwldtbt'))
+        self.assertIn('Right$(filename, 10)',body('TableFileExists'))
+        self.assertIn('".sldwldtbt"',body('TableFileExists'))
+        self.assertIn('NormalizeTablePath(candidate)',body('ResolveTableTemplate'))
 
 if __name__=='__main__':
     unittest.main()
