@@ -90,7 +90,7 @@ class CoreTests(unittest.TestCase):
         x,y = assignment('PlaceDetail','position(0)',env),assignment('PlaceDetail','position(1)',env)
         self.assertAlmostEqual(outline[2]+x-position[0],.4)
         self.assertAlmostEqual(outline[3]+y-position[1],.4)
-        self.assertAlmostEqual(assignment('PlaceDetail','cursorY',dict(outline=outline,GAP=.015)),-.04)
+        self.assertAlmostEqual(assignment('PlaceDetail','cursorY',dict(outline=outline,GAP=.01)),-.035)
 
     def test_no_model_window_or_cross_context_dependency(self):
         code = '\n'.join(line.split("'",1)[0] for line in SOURCE.splitlines())
@@ -295,6 +295,22 @@ class CoreTests(unittest.TestCase):
         env=dict(SIDE_MARGIN=.02,BOTTOM_MARGIN=.04,sheetWidth=.42,sheetHeight=.297)
         for outline,expected in [((.02,.05,.39,.27),True),((.02,-.1,.2,-.05),False),((.02,.04,.5,.1),False)]:
             self.assertEqual(assignment('OutlineInLayout','OutlineInLayout',dict(env,outline=outline)),expected)
+
+    def test_break_runs_after_dimension_validation_and_before_final_layout(self):
+        code=body('NativeDimensionView')
+        self.assertLess(code.index('NdValidateAll created, expected, viewScale'),code.index('NdTryBreakLongView'))
+        self.assertLess(code.index('NdTryBreakLongView'),code.index('box = NdDimensionEnvelope(created, bounds)'))
+        self.assertIn('If postHoleCount <> holeCount Then Fail',body('NdTryBreakLongView'))
+        self.assertIn('NdValidateAll created, expected, viewScale',body('NdTryBreakLongView'))
+        self.assertIn('NdUndoBreak(view, unbrokenWidth)',code)
+
+    def test_cut_list_outside_sheet_and_ten_millimetre_view_gap(self):
+        code=body('InsertOutsideCutList')
+        self.assertIn('x = sheetWidth + SIDE_MARGIN',code)
+        self.assertIn('source.InsertWeldmentTable(False, x, y, 1, config, tableTemplate)',code)
+        self.assertIn('If table.RowCount < 2 Then Fail',code)
+        self.assertEqual(assignment('PlaceDetail','cursorY',dict(outline=[0,.12,.2,.2],GAP=.01)),.11)
+        self.assertIn('Private Const GAP As Double = 0.01',SOURCE)
 
 if __name__=='__main__':
     unittest.main()

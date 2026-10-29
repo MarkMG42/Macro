@@ -2,14 +2,20 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R9_FAST_GEOMETRY_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R10_CUTLIST_BREAK_20261029"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
+Private Const ADD_BALLOONS As Boolean = False
 Private Const HOLES_LEFT As Boolean = True
 Private Const HOLE_SIDE_TOLERANCE As Double = 0.0001
 Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
 Private Const DETAIL_SCALE As Double = 0.2
-Private Const GAP As Double = 0.015
+Private Const GAP As Double = 0.01
+Private Const BREAK_MODEL_THRESHOLD As Double = 1.2
+Private Const BREAK_MAX_WIDTH As Double = 0.18
+Private Const BREAK_GAP As Double = 0.005
+Private Const BREAK_HOLE_CLEARANCE As Double = 0.01
+Private Const BREAK_END_CLEARANCE As Double = 0.015
 Private Const SIDE_MARGIN As Double = 0.02
 Private Const BOTTOM_MARGIN As Double = 0.04
 Private Const EPS As Double = 0.0000001
@@ -27,9 +33,11 @@ Private visited As Object
 Private skipped As Collection
 Private orientationWarnings As Collection
 Private dimensionWarnings As Collection
+Private breakWarnings As Collection
 Private dimensionsCompleted As Long
 Private dimensionsFailed As Long
 Private dimensionsOutside As Long
+Private breaksCompleted As Long
 Private currentStage As String
 Private currentBody As String
 Private currentView As String
@@ -71,6 +79,7 @@ End Type
 Public Sub start()
     Dim source As SldWorks.View, sheet As SldWorks.Sheet
     Dim config As String, message As String, cleanup As String, errorText As String, prompt As String
+    Dim tableTemplate As String
     Dim bodies As Collection, cursorY As Double, width As Double, height As Double
     Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle, outside As Long
     On Error GoTo Failed
@@ -78,9 +87,11 @@ Public Sub start()
     Set skipped = New Collection
     Set orientationWarnings = New Collection
     Set dimensionWarnings = New Collection
+    Set breakWarnings = New Collection
     dimensionsCompleted = 0
     dimensionsFailed = 0
     dimensionsOutside = 0
+    breaksCompleted = 0
     Set madeTable = Nothing
     Set partModel = Nothing
     Set drawingModel = Nothing
@@ -138,9 +149,6 @@ Public Sub start()
     If width <= 2# * SIDE_MARGIN Or height <= BOTTOM_MARGIN Then Fail "Неверные размеры листа."
     MarkStage "Начало компоновки в правом верхнем углу листа"
     cursorY = height - SIDE_MARGIN
-    If Len(TABLE_TEMPLATE) > 0 Then
-        If Len(Dir$(TABLE_TEMPLATE)) = 0 Then Fail "Не найден шаблон таблицы: " & TABLE_TEMPLATE
-    End If
     If MsgBox(BUILD_ID & vbCrLf & "Проверить позиций: " & CStr(bodies.Count) & _
               ". Масштаб 1:" & CStr(1# / DETAIL_SCALE) & vbCrLf & _
               "Размещение за полями листа разрешено: " & CStr(ALLOW_WORKSPACE_LAYOUT) & _
@@ -148,11 +156,8 @@ Public Sub start()
         message = "Отменено."
         GoTo Finished
     End If
-    If Len(TABLE_TEMPLATE) > 0 Then
-        MarkStage "Вставка таблицы списка вырезов"
-        Set madeTable = source.InsertWeldmentTable(False, SIDE_MARGIN, height - SIDE_MARGIN, 1, config, TABLE_TEMPLATE)
-        If madeTable Is Nothing Then Fail "Не удалось вставить таблицу."
-    End If
+    tableTemplate = ResolveTableTemplate()
+    InsertOutsideCutList source, config, width, height, tableTemplate
     For i = 1 To bodies.Count
         currentBody = CStr(bodies(i))
         If ProcessBody(source, config, i, cursorY, width) Then completed = completed + 1
@@ -160,11 +165,18 @@ Public Sub start()
     If AUTO_DIMENSIONS And completed > 0 Then DimensionAndArrange width, height
     message = "Создано видов: " & CStr(completed) & "; пропущено позиций: " & CStr(skipped.Count) & "."
     If AUTO_DIMENSIONS Then message = message & vbCrLf & "Размеры: обработано видов=" & CStr(dimensionsCompleted) & "; не обработано=" & CStr(dimensionsFailed) & "."
+    If AUTO_DIMENSIONS Then message = message & vbCrLf & "Разрывов длинных видов=" & CStr(breaksCompleted) & "; пропущено=" & CStr(breakWarnings.Count) & "."
     If dimensionsOutside > 0 Then message = message & vbCrLf & "Оформление за полями: " & CStr(dimensionsOutside) & ". Требуется компоновка."
     If dimensionWarnings.Count > 0 Then
         icon = vbExclamation
         For i = 1 To dimensionWarnings.Count
             If i <= 3 Then message = message & vbCrLf & CStr(dimensionWarnings(i))
+        Next i
+    End If
+    If breakWarnings.Count > 0 Then
+        icon = vbExclamation
+        For i = 1 To breakWarnings.Count
+            If i <= 3 Then message = message & vbCrLf & CStr(breakWarnings(i))
         Next i
     End If
     outside = CountOutsideLayout(width, height)
@@ -266,7 +278,7 @@ Private Function ProcessBody(ByVal source As SldWorks.View, ByVal config As Stri
     If face Is Nothing Then Fail "После окончательного перестроения отверстие не подтверждено."
     MarkStage "Размещение по фактическим габаритам"
     PlaceDetail view, cursorY, sheetWidth
-    If Len(TABLE_TEMPLATE) > 0 Then
+    If ADD_BALLOONS Then
         Set face = FindVisibleHoleFace(view, holes, area)
         If face Is Nothing Then Fail "Не найдена грань для позиции после поворота вида."
         MarkStage "Создание позиции"
@@ -367,6 +379,63 @@ Private Sub UpdateCutList()
         End If
         Set feature = feature.GetNextFeature
     Loop
+End Sub
+
+Private Function TableFileExists(ByVal filename As String) As Boolean
+    If Len(filename) = 0 Then Exit Function
+    On Error GoTo Missing
+    TableFileExists = (Len(Dir$(filename)) > 0)
+Missing:
+End Function
+
+Private Function ResolveTableTemplate() As String
+    Dim executable As String, folder As String, candidate As String
+    Dim language As Variant
+    If Len(TABLE_TEMPLATE) > 0 Then
+        If TableFileExists(TABLE_TEMPLATE) = False Then Fail "Не найден указанный шаблон списка вырезов: " & TABLE_TEMPLATE
+        ResolveTableTemplate = TABLE_TEMPLATE
+        Exit Function
+    End If
+    executable = app.GetExecutablePath
+    If InStrRev(executable, "\") > 0 Then folder = Left$(executable, InStrRev(executable, "\") - 1)
+    For Each language In Array("russian", "english")
+        candidate = folder & "\lang\" & CStr(language) & "\cut list.sldwldtbt"
+        If TableFileExists(candidate) Then
+            ResolveTableTemplate = candidate
+            Exit Function
+        End If
+    Next language
+    candidate = InputBox("Шаблон списка вырезов не найден рядом с SOLIDWORKS. " & _
+                         "Укажите полный путь к .sldwldtbt или задайте TABLE_TEMPLATE в начале модуля.", _
+                         "Шаблон списка вырезов")
+    If TableFileExists(candidate) Then
+        ResolveTableTemplate = candidate
+        Exit Function
+    End If
+    Fail "Не найден доступный шаблон .sldwldtbt; таблица не создана."
+End Function
+
+Private Sub InsertOutsideCutList(ByVal source As SldWorks.View, ByVal config As String, _
+                                 ByVal sheetWidth As Double, ByVal sheetHeight As Double, ByVal tableTemplate As String)
+    Dim table As SldWorks.TableAnnotation, annotation As SldWorks.Annotation
+    Dim position As Variant, x As Double, y As Double
+    MarkStage "Вставка таблицы списка вырезов за правой границей листа"
+    x = sheetWidth + SIDE_MARGIN
+    y = sheetHeight - SIDE_MARGIN
+    Set madeTable = source.InsertWeldmentTable(False, x, y, 1, config, tableTemplate)
+    If madeTable Is Nothing Then Fail "SOLIDWORKS не создал таблицу списка вырезов."
+    Set table = madeTable
+    table.Anchored = False
+    Set annotation = table.GetAnnotation
+    If annotation Is Nothing Then Fail "Таблица не вернула аннотацию для размещения."
+    If annotation.SetPosition2(x, y, 0#) = False Then Fail "Не удалось разместить таблицу вне листа."
+    drawingModel.EditRebuild3
+    position = annotation.GetPosition
+    If HasItems(position) = False Then Fail "Таблица не вернула положение."
+    If LBound(position) <> 0 Or UBound(position) < 1 Then Fail "Неполное положение таблицы."
+    If CDbl(position(0)) < sheetWidth Then Fail "Таблица осталась на листе."
+    If table.RowCount < 2 Then Fail "Таблица списка вырезов не содержит позиций."
+    WriteLog "Список вырезов: строк=" & CStr(table.RowCount) & "; X=" & CStr(CDbl(position(0)))
 End Sub
 
 Private Sub CollectBodies(ByVal feature As SldWorks.Feature, ByVal result As Collection, ByVal subLevel As Boolean)
@@ -1385,7 +1454,8 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
     Dim i As Long, k As Long, index As Long, group As Collection, display As SldWorks.DisplayDimension
     Dim projectedBefore As Boolean, modeKnown As Boolean, originalPosition As Variant, position As Variant
     Dim box As Variant, actual As Variant, dx As Double, dy As Double, number As Long, description As String, origin As String
-    Dim cleanup As String, prefix As String
+    Dim breakOutline As Variant
+    Dim cleanup As String, prefix As String, breakApplied As Boolean, unbrokenWidth As Double
     On Error GoTo Failed
     Set created = New Collection
     Set expected = New Collection
@@ -1450,6 +1520,15 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
     Next i
     drawingModel.EditRebuild3
     NdValidateAll created, expected, viewScale
+    If (bounds.MaxX - bounds.MinX) / viewScale > BREAK_MODEL_THRESHOLD Then
+        unbrokenWidth = bounds.MaxX - bounds.MinX
+        If NdTryBreakLongView(view, holes, holeCount, bounds, viewScale, created, expected) Then
+            breakApplied = True
+            breakOutline = ReadOutline(view)
+            bounds.MinX = CDbl(breakOutline(0)): bounds.MaxX = CDbl(breakOutline(2))
+            bounds.MinY = CDbl(breakOutline(1)): bounds.MaxY = CDbl(breakOutline(3))
+        End If
+    End If
     box = NdDimensionEnvelope(created, bounds)
     dx = targetRight - box(3)
     dy = targetTop - box(4)
@@ -1475,7 +1554,12 @@ Failed:
     description = Err.Description
     origin = Err.Source
     On Error GoTo 0
-    cleanup = NdRollback(created)
+    If breakApplied Then
+        cleanup = NdUndoBreak(view, unbrokenWidth)
+        If breaksCompleted > 0 Then breaksCompleted = breaksCompleted - 1
+        breakWarnings.Add "Вид [" & currentView & "]: разрыв отменён после отказа размеров/компоновки."
+    End If
+    cleanup = cleanup & NdRollback(created)
     cleanup = cleanup & NdRestore(view, originalPosition, modeKnown, projectedBefore)
     WriteLog "VBA-размеры: отказ=" & CStr(number) & "; " & description & cleanup
     If number = 0 Then number = vbObjectError + 1900
@@ -1589,6 +1673,141 @@ Private Sub NdArcPoint(ByVal center As Variant, ByVal cx As Double, ByVal cy As 
     y = center(1) + cy * Cos(u) + sy * Sin(u)
     NdIncludePoint bounds, initialized, x, y
 End Sub
+
+Private Function NdBreakPlan(ByRef holes() As NDHole, ByVal holeCount As Long, ByRef bounds As NDBounds) As Variant
+    Dim starts() As Double, finishes() As Double, leftEdge As Double, rightEdge As Double
+    Dim width As Double, required As Double, middleLimit As Double, startX As Double, finishX As Double
+    Dim bestStart As Double, bestFinish As Double, cursor As Double, swapStart As Double, swapFinish As Double
+    Dim i As Long, j As Long, occupied As Long, hasMiddleHole As Boolean
+    width = bounds.MaxX - bounds.MinX
+    required = width - BREAK_MAX_WIDTH + BREAK_GAP + 0.002
+    leftEdge = bounds.MinX + BREAK_END_CLEARANCE
+    rightEdge = bounds.MaxX - BREAK_END_CLEARANCE
+    For i = 1 To holeCount
+        If holes(i).X > bounds.MinX + width / 3# And holes(i).X < bounds.MaxX - width / 3# Then
+            middleLimit = holes(i).X - holes(i).Radius - BREAK_HOLE_CLEARANCE
+            If hasMiddleHole = False Or middleLimit < rightEdge Then rightEdge = middleLimit
+            hasMiddleHole = True
+        End If
+    Next i
+    If rightEdge <= leftEdge Then Exit Function
+    If rightEdge - leftEdge < required Then Exit Function
+    ReDim starts(1 To holeCount)
+    ReDim finishes(1 To holeCount)
+    For i = 1 To holeCount
+        startX = holes(i).X - holes(i).Radius - BREAK_HOLE_CLEARANCE
+        finishX = holes(i).X + holes(i).Radius + BREAK_HOLE_CLEARANCE
+        If finishX > leftEdge And startX < rightEdge Then
+            occupied = occupied + 1
+            If startX < leftEdge Then startX = leftEdge
+            If finishX > rightEdge Then finishX = rightEdge
+            starts(occupied) = startX
+            finishes(occupied) = finishX
+        End If
+    Next i
+    For i = 2 To occupied
+        swapStart = starts(i): swapFinish = finishes(i)
+        j = i - 1
+        Do While j >= 1
+            If starts(j) <= swapStart Then Exit Do
+            starts(j + 1) = starts(j): finishes(j + 1) = finishes(j)
+            j = j - 1
+        Loop
+        starts(j + 1) = swapStart: finishes(j + 1) = swapFinish
+    Next i
+    cursor = leftEdge
+    For i = 1 To occupied
+        If starts(i) - cursor > bestFinish - bestStart Then
+            bestStart = cursor: bestFinish = starts(i)
+        End If
+        If finishes(i) > cursor Then cursor = finishes(i)
+    Next i
+    If rightEdge - cursor > bestFinish - bestStart Then
+        bestStart = cursor: bestFinish = rightEdge
+    End If
+    If bestFinish - bestStart < required Then Exit Function
+    startX = bestStart + (bestFinish - bestStart - required) / 2#
+    NdBreakPlan = Array(startX, startX + required)
+End Function
+
+Public Sub TestBreakPlan()
+    Dim holes(1 To 3) As NDHole, bounds As NDBounds, plan As Variant
+    bounds.MinX = 0#: bounds.MaxX = 0.34
+    holes(1).X = 0.006: holes(1).Radius = 0.0014
+    holes(2).X = 0.024: holes(2).Radius = 0.0014
+    plan = NdBreakPlan(holes, 2, bounds)
+    If IsEmpty(plan) Then Fail "Тест разрыва: не найден пустой участок после левых отверстий."
+    If CDbl(plan(0)) < holes(2).X + holes(2).Radius + BREAK_HOLE_CLEARANCE Then Fail "Тест разрыва: скрыто левое отверстие."
+    holes(3).X = 0.22: holes(3).Radius = 0.002
+    plan = NdBreakPlan(holes, 3, bounds)
+    If IsEmpty(plan) Then Fail "Тест разрыва: не найден участок слева от среднего отверстия."
+    If CDbl(plan(1)) > holes(3).X - holes(3).Radius - BREAK_HOLE_CLEARANCE Then Fail "Тест разрыва: разрыв пересёк среднее отверстие."
+    holes(3).X = 0.17
+    plan = NdBreakPlan(holes, 3, bounds)
+    If IsEmpty(plan) = False Then Fail "Тест разрыва: выбран слишком короткий участок."
+    MsgBox BUILD_ID & ": TestBreakPlan passed; это проверка расчёта, без создания разрыва в SOLIDWORKS.", vbInformation
+End Sub
+
+Private Function NdUndoBreak(ByVal view As SldWorks.View, ByVal originalWidth As Double) As String
+    Dim outline As Variant
+    On Error GoTo Failed
+    SelectDrawingView view
+    drawing.UnBreakView
+    drawingModel.EditRebuild3
+    outline = ReadOutline(view)
+    If CDbl(outline(2)) - CDbl(outline(0)) < originalWidth - 0.0001 Then _
+        Fail "После отмены разрыва исходная длина вида не восстановилась."
+    NdUndoBreak = " Разрыв отменён."
+    Exit Function
+Failed:
+    NdUndoBreak = " ОШИБКА ОТМЕНЫ РАЗРЫВА: " & Err.Description
+End Function
+
+Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() As NDHole, ByVal holeCount As Long, _
+                                    ByRef bounds As NDBounds, ByVal viewScale As Double, _
+                                    ByVal created As Collection, ByVal expected As Collection) As Boolean
+    Dim plan As Variant, breakLine As SldWorks.BreakLine, outline As Variant
+    Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
+    Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean
+    Dim failure As String, rollback As String
+    plan = NdBreakPlan(holes, holeCount, bounds)
+    If IsEmpty(plan) Then
+        breakWarnings.Add "Вид [" & currentView & "]: нет свободного участка для длины до 180 мм без закрытия отверстий."
+        Exit Function
+    End If
+    On Error GoTo Failed
+    MarkStage "Разрыв длинного вида после нанесения размеров"
+    If HasItems(view.GetBreakLines) Then Fail "В скопированном виде уже есть линии разрыва."
+    oldGap = view.BreakLineGap
+    view.BreakLineGap = BREAK_GAP
+    SelectDrawingView view
+    inserted = True
+    Set breakLine = view.InsertBreak3(swBreakLineVertical, CDbl(plan(0)), CDbl(plan(1)), swBreakLine_Curve, 0, True)
+    If breakLine Is Nothing Then Fail "SOLIDWORKS не создал линии разрыва."
+    drawing.BreakView
+    drawingModel.EditRebuild3
+    outline = ReadOutline(view)
+    If CDbl(outline(2)) - CDbl(outline(0)) > BREAK_MAX_WIDTH + 0.0001 Then Fail "Разрыв не сократил вид до 180 мм."
+    NdReadGeometry view, viewScale, postLines, postLineCount, postHoles, postHoleCount, postBounds
+    If postHoleCount <> holeCount Then Fail "После разрыва изменилось число видимых отверстий."
+    NdValidateAll created, expected, viewScale
+    breaksCompleted = breaksCompleted + 1
+    WriteLog "Разрыв подтверждён: до=" & CStr((bounds.MaxX - bounds.MinX) * 1000#) & _
+             " мм; после=" & CStr((CDbl(outline(2)) - CDbl(outline(0))) * 1000#) & " мм."
+    NdTryBreakLongView = True
+    Exit Function
+Failed:
+    failure = Err.Description
+    If inserted Then
+        On Error GoTo 0
+        rollback = NdUndoBreak(view, bounds.MaxX - bounds.MinX)
+        If InStr(rollback, "ОШИБКА") > 0 Then Fail "Не удалось отменить ошибочный разрыв вида [" & currentView & "]: " & failure & rollback
+        view.BreakLineGap = oldGap
+        NdValidateAll created, expected, viewScale
+    End If
+    WriteLog "Разрыв пропущен: " & failure
+    breakWarnings.Add "Вид [" & currentView & "]: разрыв пропущен; " & failure
+End Function
 
 Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Double, ByRef lines() As NDLine, ByRef lineCount As Long, _
                            ByRef holes() As NDHole, ByRef holeCount As Long, ByRef bounds As NDBounds)

@@ -6,7 +6,8 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
     Dim i As Long, k As Long, index As Long, group As Collection, display As SldWorks.DisplayDimension
     Dim projectedBefore As Boolean, modeKnown As Boolean, originalPosition As Variant, position As Variant
     Dim box As Variant, actual As Variant, dx As Double, dy As Double, number As Long, description As String, origin As String
-    Dim cleanup As String, prefix As String
+    Dim breakOutline As Variant
+    Dim cleanup As String, prefix As String, breakApplied As Boolean, unbrokenWidth As Double
     On Error GoTo Failed
     Set created = New Collection
     Set expected = New Collection
@@ -71,6 +72,15 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetRi
     Next i
     drawingModel.EditRebuild3
     NdValidateAll created, expected, viewScale
+    If (bounds.MaxX - bounds.MinX) / viewScale > BREAK_MODEL_THRESHOLD Then
+        unbrokenWidth = bounds.MaxX - bounds.MinX
+        If NdTryBreakLongView(view, holes, holeCount, bounds, viewScale, created, expected) Then
+            breakApplied = True
+            breakOutline = ReadOutline(view)
+            bounds.MinX = CDbl(breakOutline(0)): bounds.MaxX = CDbl(breakOutline(2))
+            bounds.MinY = CDbl(breakOutline(1)): bounds.MaxY = CDbl(breakOutline(3))
+        End If
+    End If
     box = NdDimensionEnvelope(created, bounds)
     dx = targetRight - box(3)
     dy = targetTop - box(4)
@@ -96,7 +106,12 @@ Failed:
     description = Err.Description
     origin = Err.Source
     On Error GoTo 0
-    cleanup = NdRollback(created)
+    If breakApplied Then
+        cleanup = NdUndoBreak(view, unbrokenWidth)
+        If breaksCompleted > 0 Then breaksCompleted = breaksCompleted - 1
+        breakWarnings.Add "Вид [" & currentView & "]: разрыв отменён после отказа размеров/компоновки."
+    End If
+    cleanup = cleanup & NdRollback(created)
     cleanup = cleanup & NdRestore(view, originalPosition, modeKnown, projectedBefore)
     WriteLog "VBA-размеры: отказ=" & CStr(number) & "; " & description & cleanup
     If number = 0 Then number = vbObjectError + 1900
@@ -210,6 +225,141 @@ Private Sub NdArcPoint(ByVal center As Variant, ByVal cx As Double, ByVal cy As 
     y = center(1) + cy * Cos(u) + sy * Sin(u)
     NdIncludePoint bounds, initialized, x, y
 End Sub
+
+Private Function NdBreakPlan(ByRef holes() As NDHole, ByVal holeCount As Long, ByRef bounds As NDBounds) As Variant
+    Dim starts() As Double, finishes() As Double, leftEdge As Double, rightEdge As Double
+    Dim width As Double, required As Double, middleLimit As Double, startX As Double, finishX As Double
+    Dim bestStart As Double, bestFinish As Double, cursor As Double, swapStart As Double, swapFinish As Double
+    Dim i As Long, j As Long, occupied As Long, hasMiddleHole As Boolean
+    width = bounds.MaxX - bounds.MinX
+    required = width - BREAK_MAX_WIDTH + BREAK_GAP + 0.002
+    leftEdge = bounds.MinX + BREAK_END_CLEARANCE
+    rightEdge = bounds.MaxX - BREAK_END_CLEARANCE
+    For i = 1 To holeCount
+        If holes(i).X > bounds.MinX + width / 3# And holes(i).X < bounds.MaxX - width / 3# Then
+            middleLimit = holes(i).X - holes(i).Radius - BREAK_HOLE_CLEARANCE
+            If hasMiddleHole = False Or middleLimit < rightEdge Then rightEdge = middleLimit
+            hasMiddleHole = True
+        End If
+    Next i
+    If rightEdge <= leftEdge Then Exit Function
+    If rightEdge - leftEdge < required Then Exit Function
+    ReDim starts(1 To holeCount)
+    ReDim finishes(1 To holeCount)
+    For i = 1 To holeCount
+        startX = holes(i).X - holes(i).Radius - BREAK_HOLE_CLEARANCE
+        finishX = holes(i).X + holes(i).Radius + BREAK_HOLE_CLEARANCE
+        If finishX > leftEdge And startX < rightEdge Then
+            occupied = occupied + 1
+            If startX < leftEdge Then startX = leftEdge
+            If finishX > rightEdge Then finishX = rightEdge
+            starts(occupied) = startX
+            finishes(occupied) = finishX
+        End If
+    Next i
+    For i = 2 To occupied
+        swapStart = starts(i): swapFinish = finishes(i)
+        j = i - 1
+        Do While j >= 1
+            If starts(j) <= swapStart Then Exit Do
+            starts(j + 1) = starts(j): finishes(j + 1) = finishes(j)
+            j = j - 1
+        Loop
+        starts(j + 1) = swapStart: finishes(j + 1) = swapFinish
+    Next i
+    cursor = leftEdge
+    For i = 1 To occupied
+        If starts(i) - cursor > bestFinish - bestStart Then
+            bestStart = cursor: bestFinish = starts(i)
+        End If
+        If finishes(i) > cursor Then cursor = finishes(i)
+    Next i
+    If rightEdge - cursor > bestFinish - bestStart Then
+        bestStart = cursor: bestFinish = rightEdge
+    End If
+    If bestFinish - bestStart < required Then Exit Function
+    startX = bestStart + (bestFinish - bestStart - required) / 2#
+    NdBreakPlan = Array(startX, startX + required)
+End Function
+
+Public Sub TestBreakPlan()
+    Dim holes(1 To 3) As NDHole, bounds As NDBounds, plan As Variant
+    bounds.MinX = 0#: bounds.MaxX = 0.34
+    holes(1).X = 0.006: holes(1).Radius = 0.0014
+    holes(2).X = 0.024: holes(2).Radius = 0.0014
+    plan = NdBreakPlan(holes, 2, bounds)
+    If IsEmpty(plan) Then Fail "Тест разрыва: не найден пустой участок после левых отверстий."
+    If CDbl(plan(0)) < holes(2).X + holes(2).Radius + BREAK_HOLE_CLEARANCE Then Fail "Тест разрыва: скрыто левое отверстие."
+    holes(3).X = 0.22: holes(3).Radius = 0.002
+    plan = NdBreakPlan(holes, 3, bounds)
+    If IsEmpty(plan) Then Fail "Тест разрыва: не найден участок слева от среднего отверстия."
+    If CDbl(plan(1)) > holes(3).X - holes(3).Radius - BREAK_HOLE_CLEARANCE Then Fail "Тест разрыва: разрыв пересёк среднее отверстие."
+    holes(3).X = 0.17
+    plan = NdBreakPlan(holes, 3, bounds)
+    If IsEmpty(plan) = False Then Fail "Тест разрыва: выбран слишком короткий участок."
+    MsgBox BUILD_ID & ": TestBreakPlan passed; это проверка расчёта, без создания разрыва в SOLIDWORKS.", vbInformation
+End Sub
+
+Private Function NdUndoBreak(ByVal view As SldWorks.View, ByVal originalWidth As Double) As String
+    Dim outline As Variant
+    On Error GoTo Failed
+    SelectDrawingView view
+    drawing.UnBreakView
+    drawingModel.EditRebuild3
+    outline = ReadOutline(view)
+    If CDbl(outline(2)) - CDbl(outline(0)) < originalWidth - 0.0001 Then _
+        Fail "После отмены разрыва исходная длина вида не восстановилась."
+    NdUndoBreak = " Разрыв отменён."
+    Exit Function
+Failed:
+    NdUndoBreak = " ОШИБКА ОТМЕНЫ РАЗРЫВА: " & Err.Description
+End Function
+
+Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() As NDHole, ByVal holeCount As Long, _
+                                    ByRef bounds As NDBounds, ByVal viewScale As Double, _
+                                    ByVal created As Collection, ByVal expected As Collection) As Boolean
+    Dim plan As Variant, breakLine As SldWorks.BreakLine, outline As Variant
+    Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
+    Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean
+    Dim failure As String, rollback As String
+    plan = NdBreakPlan(holes, holeCount, bounds)
+    If IsEmpty(plan) Then
+        breakWarnings.Add "Вид [" & currentView & "]: нет свободного участка для длины до 180 мм без закрытия отверстий."
+        Exit Function
+    End If
+    On Error GoTo Failed
+    MarkStage "Разрыв длинного вида после нанесения размеров"
+    If HasItems(view.GetBreakLines) Then Fail "В скопированном виде уже есть линии разрыва."
+    oldGap = view.BreakLineGap
+    view.BreakLineGap = BREAK_GAP
+    SelectDrawingView view
+    inserted = True
+    Set breakLine = view.InsertBreak3(swBreakLineVertical, CDbl(plan(0)), CDbl(plan(1)), swBreakLine_Curve, 0, True)
+    If breakLine Is Nothing Then Fail "SOLIDWORKS не создал линии разрыва."
+    drawing.BreakView
+    drawingModel.EditRebuild3
+    outline = ReadOutline(view)
+    If CDbl(outline(2)) - CDbl(outline(0)) > BREAK_MAX_WIDTH + 0.0001 Then Fail "Разрыв не сократил вид до 180 мм."
+    NdReadGeometry view, viewScale, postLines, postLineCount, postHoles, postHoleCount, postBounds
+    If postHoleCount <> holeCount Then Fail "После разрыва изменилось число видимых отверстий."
+    NdValidateAll created, expected, viewScale
+    breaksCompleted = breaksCompleted + 1
+    WriteLog "Разрыв подтверждён: до=" & CStr((bounds.MaxX - bounds.MinX) * 1000#) & _
+             " мм; после=" & CStr((CDbl(outline(2)) - CDbl(outline(0))) * 1000#) & " мм."
+    NdTryBreakLongView = True
+    Exit Function
+Failed:
+    failure = Err.Description
+    If inserted Then
+        On Error GoTo 0
+        rollback = NdUndoBreak(view, bounds.MaxX - bounds.MinX)
+        If InStr(rollback, "ОШИБКА") > 0 Then Fail "Не удалось отменить ошибочный разрыв вида [" & currentView & "]: " & failure & rollback
+        view.BreakLineGap = oldGap
+        NdValidateAll created, expected, viewScale
+    End If
+    WriteLog "Разрыв пропущен: " & failure
+    breakWarnings.Add "Вид [" & currentView & "]: разрыв пропущен; " & failure
+End Function
 
 Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Double, ByRef lines() As NDLine, ByRef lineCount As Long, _
                            ByRef holes() As NDHole, ByRef holeCount As Long, ByRef bounds As NDBounds)

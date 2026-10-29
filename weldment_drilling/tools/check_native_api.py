@@ -6,12 +6,17 @@ import sys
 import dnfile
 ROOT = Path(__file__).resolve().parents[1]
 MEMBERS = {
-    'IView': ['get_ProjectedDimensions', 'set_ProjectedDimensions', 'SelectEntity'],
+    'ISldWorks': ['GetExecutablePath'],
+    'IView': ['get_ProjectedDimensions', 'set_ProjectedDimensions', 'SelectEntity',
+              'InsertWeldmentTable', 'InsertBreak3', 'GetBreakLines',
+              'get_BreakLineGap', 'set_BreakLineGap'],
+    'IDrawingDoc': ['BreakView', 'UnBreakView'],
     'ICurve': ['Evaluate2'],
     'IEdge': ['GetCurveParams3', 'GetTwoAdjacentFaces2'],
     'ICurveParamData': ['get_UMinValue', 'get_UMaxValue'],
     'IFace2': ['FaceInSurfaceSense'],
-    'IAnnotation': ['GetPosition', 'Select3'],
+    'IAnnotation': ['GetPosition', 'SetPosition2', 'Select3'],
+    'ITableAnnotation': ['GetAnnotation', 'get_RowCount', 'set_Anchored'],
     'IDisplayDimension': ['GetDimension2', 'GetAnnotation', 'get_Type2', 'SetText', 'GetText'],
     'IDimension': ['GetArcEndCondition', 'SetArcEndCondition', 'get_SystemValue'],
     'IModelDoc2': ['AddHorizontalDimension2', 'AddVerticalDimension2', 'AddDiameterDimension2'],
@@ -32,7 +37,7 @@ for label, path in [('provided_interop', ROOT.parent/'autosizedrilling/SolidWork
     reports.append(dict(label=label, assembly_sha256=sha(path), members=members))
 sources = [ROOT/'InsertWeldWithHoles.txt', ROOT/'source/native_dimensions.vba',
            ROOT/'source/native_dimensions_declarations.vba']
-report = dict(build_id='DRILL_COPY_VIEW_R9_FAST_GEOMETRY_20261029', runtime='SOLIDWORKS VBA only',
+report = dict(build_id='DRILL_COPY_VIEW_R10_CUTLIST_BREAK_20261029', runtime='SOLIDWORKS VBA only',
               source_sha256={p.relative_to(ROOT).as_posix(): sha(p) for p in sources},
               assemblies=reports, metadata_audited=True, native_vba_compile=False, native_solidworks_run=False,
               scope='Member names/signatures only; not VBA typechecking, COM execution or Defender scanning')

@@ -1,9 +1,9 @@
 {
-  "build_id": "DRILL_COPY_VIEW_R9_FAST_GEOMETRY_20261029",
+  "build_id": "DRILL_COPY_VIEW_R10_CUTLIST_BREAK_20261029",
   "runtime": "SOLIDWORKS VBA only",
   "source_sha256": {
-    "InsertWeldWithHoles.txt": "39b097d1ae46c554453607a483b9fec1590a02fe20a491d87df9dbf9db934ccd",
-    "source/native_dimensions.vba": "5457019cb0d04e89ee4141ae0be229b1a6497ede58861142c84f581a74bb0e47",
+    "InsertWeldWithHoles.txt": "d1ab0d5fb79e3585391381a4c030a89ad93b63021f70760d04a4cc0324e725dd",
+    "source/native_dimensions.vba": "7ee64042feb8ae50ed6b51a69d3cf170d3f29817eafe576a1f8fe46f242ed4bd",
     "source/native_dimensions_declarations.vba": "c856b5ee548939932dd4c7e25db09da7183fa516a913db859a072956af9d25db"
   },
   "assemblies": [
@@ -11,6 +11,12 @@
       "label": "provided_interop",
       "assembly_sha256": "d6882de288a8a8c328e264f19b8466ad83793daa58a493665ebf88db6943eb51",
       "members": [
+        {
+          "interface": "ISldWorks",
+          "member": "GetExecutablePath",
+          "signature_blob_hex": "20000e",
+          "parameter_names": []
+        },
         {
           "interface": "IView",
           "member": "get_ProjectedDimensions",
@@ -33,6 +39,64 @@
             "Entity",
             "AppendFlag"
           ]
+        },
+        {
+          "interface": "IView",
+          "member": "InsertWeldmentTable",
+          "signature_blob_hex": "2006128dcc020d0d080e0e",
+          "parameter_names": [
+            "UseAnchorPoint",
+            "X",
+            "Y",
+            "AnchorType",
+            "Configuration",
+            "TableTemplate"
+          ]
+        },
+        {
+          "interface": "IView",
+          "member": "InsertBreak3",
+          "signature_blob_hex": "20061c080d0d080802",
+          "parameter_names": [
+            "Orientation",
+            "Position1",
+            "Position2",
+            "Style",
+            "ShapeIntensity",
+            "BreakSketchBlocks"
+          ]
+        },
+        {
+          "interface": "IView",
+          "member": "GetBreakLines",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "IView",
+          "member": "get_BreakLineGap",
+          "signature_blob_hex": "20000d",
+          "parameter_names": []
+        },
+        {
+          "interface": "IView",
+          "member": "set_BreakLineGap",
+          "signature_blob_hex": "2001010d",
+          "parameter_names": [
+            "DBreakLineGap"
+          ]
+        },
+        {
+          "interface": "IDrawingDoc",
+          "member": "BreakView",
+          "signature_blob_hex": "200001",
+          "parameter_names": []
+        },
+        {
+          "interface": "IDrawingDoc",
+          "member": "UnBreakView",
+          "signature_blob_hex": "200001",
+          "parameter_names": []
         },
         {
           "interface": "ICurve",
@@ -81,11 +145,41 @@
         },
         {
           "interface": "IAnnotation",
+          "member": "SetPosition2",
+          "signature_blob_hex": "2003020d0d0d",
+          "parameter_names": [
+            "X",
+            "Y",
+            "Z"
+          ]
+        },
+        {
+          "interface": "IAnnotation",
           "member": "Select3",
           "signature_blob_hex": "20020202128a40",
           "parameter_names": [
             "Append",
             "Data"
+          ]
+        },
+        {
+          "interface": "ITableAnnotation",
+          "member": "GetAnnotation",
+          "signature_blob_hex": "20001282f0",
+          "parameter_names": []
+        },
+        {
+          "interface": "ITableAnnotation",
+          "member": "get_RowCount",
+          "signature_blob_hex": "200008",
+          "parameter_names": []
+        },
+        {
+          "interface": "ITableAnnotation",
+          "member": "set_Anchored",
+          "signature_blob_hex": "20010102",
+          "parameter_names": [
+            "Attached"
           ]
         },
         {
@@ -185,6 +279,12 @@
       "assembly_sha256": "8f535bcd3310cfd878781d1581425a07a278c7d7fad0b73f96f57920c88b9df0",
       "members": [
         {
+          "interface": "ISldWorks",
+          "member": "GetExecutablePath",
+          "signature_blob_hex": "20000e",
+          "parameter_names": []
+        },
+        {
           "interface": "IView",
           "member": "get_ProjectedDimensions",
           "signature_blob_hex": "200002",
@@ -206,6 +306,64 @@
             "Entity",
             "AppendFlag"
           ]
+        },
+        {
+          "interface": "IView",
+          "member": "InsertWeldmentTable",
+          "signature_blob_hex": "2006128dcc020d0d080e0e",
+          "parameter_names": [
+            "UseAnchorPoint",
+            "X",
+            "Y",
+            "AnchorType",
+            "Configuration",
+            "TableTemplate"
+          ]
+        },
+        {
+          "interface": "IView",
+          "member": "InsertBreak3",
+          "signature_blob_hex": "20061c080d0d080802",
+          "parameter_names": [
+            "Orientation",
+            "Position1",
+            "Position2",
+            "Style",
+            "ShapeIntensity",
+            "BreakSketchBlocks"
+          ]
+        },
+        {
+          "interface": "IView",
+          "member": "GetBreakLines",
+          "signature_blob_hex": "20001c",
+          "parameter_names": []
+        },
+        {
+          "interface": "IView",
+          "member": "get_BreakLineGap",
+          "signature_blob_hex": "20000d",
+          "parameter_names": []
+        },
+        {
+          "interface": "IView",
+          "member": "set_BreakLineGap",
+          "signature_blob_hex": "2001010d",
+          "parameter_names": [
+            "DBreakLineGap"
+          ]
+        },
+        {
+          "interface": "IDrawingDoc",
+          "member": "BreakView",
+          "signature_blob_hex": "200001",
+          "parameter_names": []
+        },
+        {
+          "interface": "IDrawingDoc",
+          "member": "UnBreakView",
+          "signature_blob_hex": "200001",
+          "parameter_names": []
         },
         {
           "interface": "ICurve",
@@ -254,11 +412,41 @@
         },
         {
           "interface": "IAnnotation",
+          "member": "SetPosition2",
+          "signature_blob_hex": "2003020d0d0d",
+          "parameter_names": [
+            "X",
+            "Y",
+            "Z"
+          ]
+        },
+        {
+          "interface": "IAnnotation",
           "member": "Select3",
           "signature_blob_hex": "20020202128a40",
           "parameter_names": [
             "Append",
             "Data"
+          ]
+        },
+        {
+          "interface": "ITableAnnotation",
+          "member": "GetAnnotation",
+          "signature_blob_hex": "20001282f0",
+          "parameter_names": []
+        },
+        {
+          "interface": "ITableAnnotation",
+          "member": "get_RowCount",
+          "signature_blob_hex": "200008",
+          "parameter_names": []
+        },
+        {
+          "interface": "ITableAnnotation",
+          "member": "set_Anchored",
+          "signature_blob_hex": "20010102",
+          "parameter_names": [
+            "Attached"
           ]
         },
         {
