@@ -276,6 +276,13 @@ class CoreTests(unittest.TestCase):
             self.assertIn("' BEGIN NATIVE DIMENSIONS "+section+'\n'+fragment+"\n' END NATIVE DIMENSIONS "+section,SOURCE)
         self.assertLess(SOURCE.index('Private Type NDLine'),SOURCE.index('Public Sub start()'))
 
+    def test_snapshot_logging_is_optional_without_changing_identity_checks(self):
+        code=body('ViewSnapshot')
+        self.assertIn('If VERBOSE_VIEW_SNAPSHOTS Then WriteLog',code)
+        self.assertIn('If ViewIndex(result, view) = 0 Then',code)
+        self.assertIn('Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False',SOURCE)
+        self.assertIn('OriginalViewsPresent(before, after)',body('CopySourceView'))
+
     def test_windows_import_encoding(self):
         self.assertEqual((ROOT/'InsertWeldWithHoles.bas').read_text(encoding='cp1251'),SOURCE)
 

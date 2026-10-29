@@ -2,7 +2,8 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R7_NATIVE_VBA_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R8_FAST_LOG_20261029"
+Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const HOLES_LEFT As Boolean = True
 Private Const HOLE_SIDE_TOLERANCE As Double = 0.0001
@@ -550,7 +551,7 @@ Private Function ViewSnapshot() As Collection
             If view Is Nothing Then Fail "В списке видов пустая ссылка."
             If view.Type <> swDrawingSheet Then
                 ' Names, including GetUniqueName, may repeat on a single sheet.
-                WriteLog "Снимок: индекс=" & CStr(i) & "; тип=" & CStr(view.Type) & "; имя=[" & view.GetName2 & "]; API-имя=[" & view.GetUniqueName & "]"
+                If VERBOSE_VIEW_SNAPSHOTS Then WriteLog "Снимок: индекс=" & CStr(i) & "; тип=" & CStr(view.Type) & "; имя=[" & view.GetName2 & "]; API-имя=[" & view.GetUniqueName & "]"
                 If ViewIndex(result, view) = 0 Then
                     result.Add view
                 Else
