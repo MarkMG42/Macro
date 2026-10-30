@@ -1,24 +1,17 @@
-# Codex CLI 0.163.0: роли наследуют модель и права сессии.
+# Codex CLI: главный агент + максимум три профильных подагента.
+# Профили наследуют модель и разрешения текущей сессии.
 [agents]
 max_concurrent_threads_per_session = 4
 max_depth = 1
 
-[agents.sw_drawings]
-description = "Листы, активация и перенос зависимых видов/разрезов SolidWorks"
-config_file = "../engineering-knowledge/agents/sw_drawings.toml"
+[agents.coder]
+description = "Пишет и рефакторит VBA/C#/Python; единственный подагент с правом править назначенные исходники"
+config_file = "../engineering-knowledge/agents/coder.toml"
 
-[agents.sw_component_notes]
-description = "Компоненты в контексте вида, свойства листов и живые связанные заметки"
-config_file = "../engineering-knowledge/agents/sw_component_notes.toml"
+[agents.api_expert]
+description = "Проверяет точные сигнатуры и ограничения SolidWorks API/COM, не пишет макросы"
+config_file = "../engineering-knowledge/agents/api_expert.toml"
 
-[agents.sw_document_output]
-description = "Сохранение документов, PDF, пакетная обработка и производительность SolidWorks"
-config_file = "../engineering-knowledge/agents/sw_document_output.toml"
-
-[agents.sw_vba_com]
-description = "Особенности SolidWorks VBA/COM, сигнатуры API и поставка Windows-макросов"
-config_file = "../engineering-knowledge/agents/sw_vba_com.toml"
-
-[agents.sw_dimensions]
-description = "Геометрия чертёжного вида, отверстия и автоматическое нанесение размеров SolidWorks"
-config_file = "../engineering-knowledge/agents/sw_dimensions.toml"
+[agents.debugger]
+description = "Ищет причины сбоев, проверяет тесты и регрессии, не переписывает код без поручения"
+config_file = "../engineering-knowledge/agents/debugger.toml"
