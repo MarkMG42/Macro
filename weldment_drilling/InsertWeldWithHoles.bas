@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R23_BREAK_DIAG_OPT_20261031"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R24_COM_CLEANUP_20261031"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -588,7 +588,7 @@ End Sub
 
 Private Function BestHoleFace(ByVal body As SldWorks.Body2) As SldWorks.Face2
     Dim face As SldWorks.Face2, surface As SldWorks.Surface
-    Dim holeLoop As SldWorks.Loop2, count As Long, bestCount As Long, area As Double
+    Dim holeLoop As SldWorks.Loop2, count As Long, bestCount As Long, area As Double, candidateArea As Double
     Set face = body.GetFirstFace
     Do While Not face Is Nothing
         Set surface = face.GetSurface
@@ -601,9 +601,10 @@ Private Function BestHoleFace(ByVal body As SldWorks.Body2) As SldWorks.Face2
                 Set holeLoop = holeLoop.GetNext
             Loop
             If count > 0 Then
-                If count > bestCount Or (count = bestCount And face.GetArea > area) Then
+                candidateArea = face.GetArea
+                If count > bestCount Or (count = bestCount And candidateArea > area) Then
                     bestCount = count
-                    area = face.GetArea
+                    area = candidateArea
                     Set BestHoleFace = face
                 End If
             End If
@@ -1082,22 +1083,6 @@ Private Sub CheckPreviousRun(ByVal sheet As SldWorks.Sheet)
         Next i
     End If
 End Sub
-
-Private Function LowestViewBottom(ByVal sheet As SldWorks.Sheet, ByVal height As Double) As Double
-    Dim views As Variant, view As SldWorks.View, outline As Variant, i As Long
-    LowestViewBottom = height - SIDE_MARGIN
-    views = sheet.GetViews
-    If HasItems(views) Then
-        For i = LBound(views) To UBound(views)
-            Set view = views(i)
-            If view Is Nothing Then Fail "Пустая ссылка при расчёте свободного места."
-            If view.Type <> swDrawingSheet Then
-                outline = ReadOutline(view)
-                If outline(1) < LowestViewBottom Then LowestViewBottom = outline(1)
-            End If
-        Next i
-    End If
-End Function
 
 Private Function ReadOutline(ByVal view As SldWorks.View) As Variant
     Dim values As Variant
@@ -1746,6 +1731,7 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX 
     Dim i As Long, k As Long, index As Long, group As Collection, display As SldWorks.DisplayDimension
     Dim projectedBefore As Boolean, modeKnown As Boolean, originalPosition As Variant, position As Variant
     Dim box As Variant, actual As Variant, dx As Double, dy As Double, number As Long, description As String, origin As String
+    Dim reference As SldWorks.ModelDoc2
     Dim breakOutline As Variant, checkLines() As NDLine, checkHoles() As NDHole, checkBounds As NDBounds
     Dim checkLineCount As Long, checkHoleCount As Long
     Dim cleanup As String, prefix As String, breakApplied As Boolean, unbrokenWidth As Double
@@ -1755,8 +1741,9 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX 
     If view Is Nothing Then Fail "Нет вида для размеров."
     MarkStage "VBA-размеры: проверка вида"
     SelectDrawingView view
-    If view.ReferencedDocument Is Nothing Then Fail "Не загружена модель вида."
-    If view.ReferencedDocument.GetType <> swDocPART Then Fail "Размеры поддерживают вид одной детали."
+    Set reference = view.ReferencedDocument
+    If reference Is Nothing Then Fail "Не загружена модель вида."
+    If reference.GetType <> swDocPART Then Fail "Размеры поддерживают вид одной детали."
     viewScale = view.ScaleDecimal
     If NdFinite(viewScale) = False Then Fail "Неконечный масштаб вида."
     If viewScale <= 0# Then Fail "Неположительный масштаб вида."
@@ -2190,7 +2177,7 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
     Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean, gapChanged As Boolean, insertAttempted As Boolean
     Dim failure As String, rollback As String, gapError As String, firstX As Double, secondX As Double, originX As Double
-    Dim breakLines As Variant, inspectError As String
+    Dim breakLines As Variant, inspectError As String, isBroken As Boolean
     outline = ReadOutline(view)
     If VERBOSE_BREAK_GEOMETRY Then
         WriteLog "Разрыв до: контур Y=" & CStr(CDbl(outline(1))) & "..." & CStr(CDbl(outline(3))) & _
@@ -2231,8 +2218,9 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
         drawing.BreakView
     End If
     drawingModel.EditRebuild3
-    WriteLog "Разрыв после перестроения: IsBroken=" & CStr(view.IsBroken)
-    If view.IsBroken = False Then Fail "SOLIDWORKS не применил разрыв."
+    isBroken = view.IsBroken
+    WriteLog "Разрыв после перестроения: IsBroken=" & CStr(isBroken)
+    If isBroken = False Then Fail "SOLIDWORKS не применил разрыв."
     outline = ReadOutline(view)
     WriteLog "Ширина вида после разрыва, мм=" & CStr((CDbl(outline(2)) - CDbl(outline(0))) * 1000#)
     If CDbl(outline(2)) - CDbl(outline(0)) > BREAK_MAX_WIDTH + 0.0001 Then Fail "Разрыв не сократил вид до 150 мм."
