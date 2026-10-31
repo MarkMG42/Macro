@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R21_BREAK_SELECT_20261031"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R22_BREAK_NUDGE_20261031"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -1834,8 +1834,8 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX 
     actual = ReadPosition(view)
     If breakApplied Then
         LogBreakGeometry view, "до выделения после перемещения"
-        If RefreshBreakDisplay(view) Then WriteLog "Выделение и перерисовка разрыва выполнены."
-        LogBreakGeometry view, "после попытки выделения и перерисовки"
+        NudgeBreakAndRestore view
+        LogBreakGeometry view, "после перемещения и возврата границы"
         actual = ReadPosition(view)
         If view.IsBroken = False Then Fail "Разрыв исчез после обновления отображения."
         breakOutline = ReadOutline(view)
@@ -2107,30 +2107,58 @@ Failed:
     NdRestoreBreakGap = " Не восстановлен зазор разрыва: " & Err.Description
 End Function
 
-Private Function RefreshBreakDisplay(ByVal view As SldWorks.View) As Boolean
-    Dim values As Variant, item As SldWorks.BreakLine, i As Long, failure As String
+Private Sub NudgeBreakAndRestore(ByVal view As SldWorks.View)
+    Const NUDGE As Double = 0.00001
+    Const POSITION_TOLERANCE As Double = 0.00000001
+    Dim values As Variant, line As SldWorks.BreakLine
+    Dim first As Double, second As Double, moved As Double, captured As Boolean, attempted As Boolean
+    Dim failure As String, restore As String, ok As Boolean
     On Error GoTo Failed
     values = view.GetBreakLines
-    If HasItems(values) = False Then Fail "Не найдена линия разрыва для выделения."
-    For i = LBound(values) To UBound(values)
-        Set item = values(i)
-        If item Is Nothing Then Fail "Пустой объект линии разрыва."
-        drawingModel.ClearSelection2 True
-        If item.Select(False, Nothing) = False Then Fail "Не удалось выделить линию разрыва."
-        drawingModel.GraphicsRedraw2
-    Next i
-    drawingModel.ClearSelection2 True
-    drawingModel.GraphicsRedraw2
-    RefreshBreakDisplay = True
-    Exit Function
+    If HasItems(values) = False Then Fail "Не найден разрыв для обновления."
+    If UBound(values) - LBound(values) + 1 <> 1 Then Fail "Неоднозначное количество разрывов."
+    Set line = values(LBound(values))
+    If line Is Nothing Then Fail "Нет объекта разрыва."
+    first = line.GetPosition(0)
+    second = line.GetPosition(1)
+    captured = True
+    If Abs(second - first) <= 2# * NUDGE Then Fail "Интервал разрыва слишком мал для пробного перемещения."
+    If second > first Then moved = first + NUDGE Else moved = first - NUDGE
+    WriteLog "Пробное перемещение разрыва: X1=" & CStr(first) & "; X2=" & CStr(second) & "; временно X1=" & CStr(moved)
+    attempted = True
+    If line.SetPosition(moved, second) = False Then Fail "Не удалось временно переместить границу разрыва."
+    drawingModel.EditRebuild3
+    If Abs(line.GetPosition(0) - moved) > POSITION_TOLERANCE Or Abs(line.GetPosition(1) - second) > POSITION_TOLERANCE Then _
+        Fail "Не подтверждено временное перемещение границы разрыва."
+    If line.SetPosition(first, second) = False Then Fail "Не удалось вернуть границу разрыва."
+    drawingModel.EditRebuild3
+    If Abs(line.GetPosition(0) - first) > POSITION_TOLERANCE Or Abs(line.GetPosition(1) - second) > POSITION_TOLERANCE Then _
+        Fail "Не подтверждён возврат границ разрыва."
+    WriteLog "Границы разрыва возвращены к исходным координатам."
+    Exit Sub
 Failed:
     failure = Err.Description
-    On Error Resume Next
-    drawingModel.ClearSelection2 True
-    On Error GoTo 0
-    breakWarnings.Add "Вид [" & currentView & "]: не удалось обновить отображение разрыва; " & failure
-    WriteLog "Обновление отображения разрыва: " & failure
-End Function
+    If captured And attempted Then
+        On Error Resume Next
+        Err.Clear
+        ok = line.SetPosition(first, second)
+        If Err.Number <> 0 Or ok = False Then
+            restore = " Не удалось вернуть границы разрыва: " & Err.Description
+        Else
+            drawingModel.EditRebuild3
+            If Err.Number <> 0 Then
+                restore = " Ошибка перестроения после возврата разрыва: " & Err.Description
+            ElseIf Abs(line.GetPosition(0) - first) > POSITION_TOLERANCE Or Abs(line.GetPosition(1) - second) > POSITION_TOLERANCE Then
+                restore = " Не подтверждён возврат границ разрыва."
+            End If
+            If Err.Number <> 0 Then restore = " Ошибка проверки возврата разрыва: " & Err.Description
+        End If
+        On Error GoTo 0
+    End If
+    If Len(restore) > 0 Then Fail "Пробное обновление разрыва: " & failure & restore
+    breakWarnings.Add "Вид [" & currentView & "]: пробное обновление разрыва не выполнено; " & failure
+    WriteLog "Пробное обновление разрыва пропущено: " & failure
+End Sub
 
 Private Sub LogBreakGeometry(ByVal view As SldWorks.View, ByVal stage As String)
     Dim info As Variant, outline As Variant, position As Variant, line As String, i As Long
