@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R17_AUDIT_SPEED_20261029"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R18_BREAK_BALLOON_DIAG_20261031"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -10,7 +10,7 @@ Private Const HOLES_LEFT As Boolean = True
 Private Const HOLE_SIDE_TOLERANCE As Double = 0.0001
 Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
 Private Const DETAIL_SCALE As Double = 0.2
-Private Const GAP As Double = 0.01
+Private Const GAP As Double = 0.005
 Private Const BREAK_MODEL_THRESHOLD As Double = 1.2
 Private Const BREAK_MAX_WIDTH As Double = 0.18
 Private Const BREAK_GAP As Double = 0.005
@@ -982,10 +982,13 @@ Private Function FindVisibleHoleFace(ByVal view As SldWorks.View, ByRef holes As
                                             Set holeLoop = face.GetFirstLoop
                                             Do While Not holeLoop Is Nothing
                                                 If IsRoundOpening(holeLoop) Then count = count + 1
+                                            currentStage = "Следующий контур грани"
                                                 Set holeLoop = holeLoop.GetNext
                                             Loop
                                             If count > 0 Then WriteLog "Круглых контуров=" & CStr(count) & "; cos(normal)=" & CStr(facing)
+                                            currentStage = "Площадь видимой грани"
                                             candidateArea = face.GetArea
+                                            currentStage = "Сравнение видимой грани"
                                             If BetterCandidate(count, candidateArea, holes, area) Then
                                                 holes = count
                                                 area = candidateArea
@@ -1387,17 +1390,23 @@ Private Function TryAddPosition(ByVal view As SldWorks.View, ByRef warning As St
     Dim holes As Long, area As Double, x As Double, y As Double, number As Long
     On Error GoTo Failed
     MarkStage "Создание связанной позиции и количества"
+    MarkStage "Поиск грани для позиции"
     Set face = FindVisibleHoleFace(view, holes, area)
     If face Is Nothing Then Fail "Не найдена видимая грань нужного тела."
+    MarkStage "Выбор грани позиции"
     drawingModel.ClearSelection2 True
     Set entity = face
     Set manager = drawingModel.SelectionManager
     If manager Is Nothing Then Fail "Нет менеджера выбора позиции."
+    MarkStage "Создание контекста выбора позиции"
     Set data = manager.CreateSelectData
     If data Is Nothing Then Fail "Не создан контекст выбора позиции."
-    Set data.View = view
+    MarkStage "Привязка выбора к виду"
+    data.View = view
+    MarkStage "Выбор грани в виде"
     If entity.Select4(False, data) = False Then Fail "Не удалось выбрать грань для позиции."
     If manager.GetSelectedObjectCount2(-1) <> 1 Then Fail "Для позиции выбрана не одна грань."
+    MarkStage "Параметры позиции"
     Set options = drawingModel.Extension.CreateBalloonOptions
     If options Is Nothing Then Fail "Не созданы параметры позиции."
     options.Style = swBS_None
@@ -1406,24 +1415,30 @@ Private Function TryAddPosition(ByVal view As SldWorks.View, ByRef warning As St
     options.QuantityPlacement = 3
     options.QuantityDenotationText = "шт"
     options.QuantityOverride = False
+    MarkStage "Вставка позиции"
     Set note = drawingModel.Extension.InsertBOMBalloon2(options)
     If note Is Nothing Then Fail "Не удалось создать позицию списка вырезов."
+    MarkStage "Чтение аннотации позиции"
     Set annotation = note.GetAnnotation
     If annotation Is Nothing Then Fail "Нет аннотации позиции."
     If note.IsBomBalloon = False Then Fail "Созданная заметка не является позицией спецификации."
+    MarkStage "Проверка параметров позиции"
     Set actualOptions = note.GetBalloonOptions
     If actualOptions Is Nothing Then Fail "Не прочитаны параметры созданной позиции."
     If actualOptions.ShowQuantity = False Or actualOptions.QuantityOverride Then _
         Fail "Созданная позиция не связана с количеством списка вырезов."
+    MarkStage "Размещение позиции"
     outline = ReadOutline(view)
     x = CDbl(outline(0)) - BALLOON_LEFT_OFFSET
     y = (CDbl(outline(1)) + CDbl(outline(3))) / 2#
     If annotation.SetPosition2(x, y, 0#) = False Then Fail "Не установлено положение позиции слева от детали."
+    MarkStage "Перестроение позиции"
     drawingModel.EditRebuild3
     position = annotation.GetPosition
     If HasItems(position) = False Then Fail "Позиция не вернула координаты."
     If Abs(CDbl(position(0)) - x) > 0.0001 Or Abs(CDbl(position(1)) - y) > 0.0001 Then _
         Fail "Позиция сместилась после перестроения."
+    MarkStage "Проверка текста позиции"
     If Len(Trim$(note.GetText)) = 0 Then Fail "Позиция не показывает номер из списка вырезов."
     WriteLog "Позиция: тело=[" & currentBody & "]; текст=[" & note.GetText & "]; X=" & CStr(x) & "; Y=" & CStr(y) & "; количество включено"
     drawingModel.ClearSelection2 True
@@ -1431,7 +1446,7 @@ Private Function TryAddPosition(ByVal view As SldWorks.View, ByRef warning As St
     Exit Function
 Failed:
     number = Err.Number
-    warning = CStr(number) & ": " & Err.Description
+    warning = "Этап [" & currentStage & "]; " & CStr(number) & ": " & Err.Description
     On Error Resume Next
     If Not annotation Is Nothing Then
         drawingModel.ClearSelection2 True
@@ -2027,10 +2042,10 @@ End Function
 Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() As NDHole, ByVal holeCount As Long, _
                                     ByRef bounds As NDBounds, ByVal viewScale As Double, _
                                     ByVal created As Collection, ByVal expected As Collection) As Boolean
-    Dim plan As Variant, breakLine As SldWorks.BreakLine, secondLine As SldWorks.BreakLine, outline As Variant
+    Dim plan As Variant, breakLine As SldWorks.BreakLine, outline As Variant, viewXform As Variant
     Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
-    Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean, gapChanged As Boolean
-    Dim failure As String, rollback As String, gapError As String, firstX As Double, secondX As Double, middleY As Double
+    Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean, gapChanged As Boolean, insertAttempted As Boolean
+    Dim failure As String, rollback As String, gapError As String, firstX As Double, secondX As Double, originX As Double
     Dim breakLines As Variant
     plan = NdBreakPlan(holes, holeCount, bounds)
     If IsEmpty(plan) Then
@@ -2043,26 +2058,32 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     outline = ReadOutline(view)
     firstX = NdBreakSheetX(CDbl(plan(0)), bounds, outline)
     secondX = NdBreakSheetX(CDbl(plan(1)), bounds, outline)
-    middleY = (CDbl(outline(1)) + CDbl(outline(3))) / 2#
+    viewXform = view.GetXform
+    If HasItems(viewXform) = False Then Fail "Не определено начало вида для разрыва."
+    If UBound(viewXform) - LBound(viewXform) < 2 Then Fail "Неизвестный формат преобразования вида."
+    originX = CDbl(viewXform(LBound(viewXform)))
     If firstX <= CDbl(outline(0)) Or secondX >= CDbl(outline(2)) Or firstX >= secondX Then _
         Fail "Линии разрыва оказались вне контура вида."
     WriteLog "Разрыв: проекция X=" & CStr(CDbl(plan(0))) & "..." & CStr(CDbl(plan(1))) & _
              "; контур X=" & CStr(CDbl(outline(0))) & "..." & CStr(CDbl(outline(2))) & _
-             "; линии на листе X=" & CStr(firstX) & "..." & CStr(secondX) & "; Y=" & CStr(middleY)
+             "; линии на листе X=" & CStr(firstX) & "..." & CStr(secondX) & "; начало вида X=" & CStr(originX)
     oldGap = view.BreakLineGap
     view.BreakLineGap = BREAK_GAP
     gapChanged = True
     SelectDrawingView view
-    Set breakLine = view.InsertBreak3(swBreakLineVertical, firstX, middleY, swBreakLine_Curve, 0, True)
-    If breakLine Is Nothing Then Fail "SOLIDWORKS не создал первую линию разрыва."
+    insertAttempted = True
+    Set breakLine = view.InsertBreak3(swBreakLineVertical, firstX - originX, secondX - originX, swBreakLine_Curve, 0, True)
+    If breakLine Is Nothing Then Fail "SOLIDWORKS не создал разрыв."
     inserted = True
-    Set secondLine = view.InsertBreak3(swBreakLineVertical, secondX, middleY, swBreakLine_Curve, 0, True)
-    If secondLine Is Nothing Then Fail "SOLIDWORKS не создал вторую линию разрыва."
     breakLines = view.GetBreakLines
-    If HasItems(breakLines) = False Then Fail "Линии разрыва не обнаружены в виде."
-    If UBound(breakLines) - LBound(breakLines) + 1 < 2 Then Fail "Вид содержит менее двух линий разрыва."
-    drawing.BreakView
+    If HasItems(breakLines) = False Then Fail "Разрыв не обнаружен в виде."
+    If UBound(breakLines) - LBound(breakLines) + 1 <> 1 Then Fail "Вид содержит неожиданное количество разрывов."
+    If view.IsBroken = False Then
+        SelectDrawingView view
+        drawing.BreakView
+    End If
     drawingModel.EditRebuild3
+    If view.IsBroken = False Then Fail "SOLIDWORKS не применил разрыв."
     outline = ReadOutline(view)
     If CDbl(outline(2)) - CDbl(outline(0)) > BREAK_MAX_WIDTH + 0.0001 Then Fail "Разрыв не сократил вид до 180 мм."
     NdReadGeometry view, viewScale, postLines, postLineCount, postHoles, postHoleCount, postBounds
@@ -2075,7 +2096,7 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     Exit Function
 Failed:
     failure = Err.Description
-    If inserted = False Then
+    If insertAttempted And inserted = False Then
         On Error Resume Next
         breakLines = view.GetBreakLines
         inserted = HasItems(breakLines)
