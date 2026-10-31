@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R20_BREAK_150_DIAG_20261031"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R21_BREAK_SELECT_20261031"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -1745,7 +1745,8 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX 
     Dim i As Long, k As Long, index As Long, group As Collection, display As SldWorks.DisplayDimension
     Dim projectedBefore As Boolean, modeKnown As Boolean, originalPosition As Variant, position As Variant
     Dim box As Variant, actual As Variant, dx As Double, dy As Double, number As Long, description As String, origin As String
-    Dim breakOutline As Variant
+    Dim breakOutline As Variant, checkLines() As NDLine, checkHoles() As NDHole, checkBounds As NDBounds
+    Dim checkLineCount As Long, checkHoleCount As Long
     Dim cleanup As String, prefix As String, breakApplied As Boolean, unbrokenWidth As Double
     On Error GoTo Failed
     Set created = New Collection
@@ -1831,7 +1832,17 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX 
     view.Position = position
     drawingModel.EditRebuild3
     actual = ReadPosition(view)
-    If breakApplied Then LogBreakGeometry view, "после окончательного перемещения"
+    If breakApplied Then
+        LogBreakGeometry view, "до выделения после перемещения"
+        If RefreshBreakDisplay(view) Then WriteLog "Выделение и перерисовка разрыва выполнены."
+        LogBreakGeometry view, "после попытки выделения и перерисовки"
+        actual = ReadPosition(view)
+        If view.IsBroken = False Then Fail "Разрыв исчез после обновления отображения."
+        breakOutline = ReadOutline(view)
+        If CDbl(breakOutline(2)) - CDbl(breakOutline(0)) > BREAK_MAX_WIDTH + 0.0001 Then Fail "Ширина вида изменилась после обновления разрыва."
+        NdReadGeometry view, viewScale, checkLines, checkLineCount, checkHoles, checkHoleCount, checkBounds
+        If checkHoleCount <> holeCount Then Fail "После обновления разрыва изменилось число отверстий."
+    End If
     If Abs(actual(0) - position(0)) > 0.0001 Or Abs(actual(1) - position(1)) > 0.0001 Then Fail "Не применено положение вида с размерами."
     bounds.MinX = bounds.MinX + dx: bounds.MaxX = bounds.MaxX + dx
     bounds.MinY = bounds.MinY + dy: bounds.MaxY = bounds.MaxY + dy
@@ -2094,6 +2105,31 @@ Private Function NdRestoreBreakGap(ByVal view As SldWorks.View, ByVal previousGa
     Exit Function
 Failed:
     NdRestoreBreakGap = " Не восстановлен зазор разрыва: " & Err.Description
+End Function
+
+Private Function RefreshBreakDisplay(ByVal view As SldWorks.View) As Boolean
+    Dim values As Variant, item As SldWorks.BreakLine, i As Long, failure As String
+    On Error GoTo Failed
+    values = view.GetBreakLines
+    If HasItems(values) = False Then Fail "Не найдена линия разрыва для выделения."
+    For i = LBound(values) To UBound(values)
+        Set item = values(i)
+        If item Is Nothing Then Fail "Пустой объект линии разрыва."
+        drawingModel.ClearSelection2 True
+        If item.Select(False, Nothing) = False Then Fail "Не удалось выделить линию разрыва."
+        drawingModel.GraphicsRedraw2
+    Next i
+    drawingModel.ClearSelection2 True
+    drawingModel.GraphicsRedraw2
+    RefreshBreakDisplay = True
+    Exit Function
+Failed:
+    failure = Err.Description
+    On Error Resume Next
+    drawingModel.ClearSelection2 True
+    On Error GoTo 0
+    breakWarnings.Add "Вид [" & currentView & "]: не удалось обновить отображение разрыва; " & failure
+    WriteLog "Обновление отображения разрыва: " & failure
 End Function
 
 Private Sub LogBreakGeometry(ByVal view As SldWorks.View, ByVal stage As String)
