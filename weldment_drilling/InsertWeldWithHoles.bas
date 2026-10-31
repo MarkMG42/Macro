@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R19_BREAK_BALLOON_20261031"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R20_BREAK_150_DIAG_20261031"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -12,7 +12,7 @@ Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
 Private Const DETAIL_SCALE As Double = 0.2
 Private Const GAP As Double = 0.005
 Private Const BREAK_MODEL_THRESHOLD As Double = 1.2
-Private Const BREAK_MAX_WIDTH As Double = 0.18
+Private Const BREAK_MAX_WIDTH As Double = 0.15
 Private Const BREAK_GAP As Double = 0.005
 Private Const BREAK_HOLE_CLEARANCE As Double = 0.01
 Private Const BREAK_END_CLEARANCE As Double = 0.015
@@ -1820,6 +1820,7 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX 
             bounds.MinY = CDbl(breakOutline(1)): bounds.MaxY = CDbl(breakOutline(3))
         End If
     End If
+    If breakApplied Then LogBreakGeometry view, "до окончательного перемещения"
     box = NdDimensionEnvelope(created, bounds)
     If placeLeft Then dx = targetX - box(1) Else dx = targetX - box(3)
     dy = targetTop - box(4)
@@ -1830,6 +1831,7 @@ Private Function NativeDimensionView(ByVal view As SldWorks.View, ByVal targetX 
     view.Position = position
     drawingModel.EditRebuild3
     actual = ReadPosition(view)
+    If breakApplied Then LogBreakGeometry view, "после окончательного перемещения"
     If Abs(actual(0) - position(0)) > 0.0001 Or Abs(actual(1) - position(1)) > 0.0001 Then Fail "Не применено положение вида с размерами."
     bounds.MinX = bounds.MinX + dx: bounds.MaxX = bounds.MaxX + dx
     bounds.MinY = bounds.MinY + dy: bounds.MaxY = bounds.MaxY + dy
@@ -2037,7 +2039,7 @@ End Function
 
 Public Sub TestBreakPlan()
     Dim holes(1 To 3) As NDHole, bounds As NDBounds, plan As Variant
-    bounds.MinX = 0#: bounds.MaxX = 0.34
+    bounds.MinX = 0#: bounds.MaxX = 0.3
     holes(1).X = 0.006: holes(1).Radius = 0.0014
     holes(2).X = 0.024: holes(2).Radius = 0.0014
     plan = NdBreakPlan(holes, 2, bounds)
@@ -2047,6 +2049,10 @@ Public Sub TestBreakPlan()
     plan = NdBreakPlan(holes, 3, bounds)
     If IsEmpty(plan) Then Fail "Тест разрыва: не найден участок слева от среднего отверстия."
     If CDbl(plan(1)) > holes(3).X - holes(3).Radius - BREAK_HOLE_CLEARANCE Then Fail "Тест разрыва: разрыв пересёк среднее отверстие."
+    plan = NdBreakPlan(holes, 3, bounds, 0.312)
+    If IsEmpty(plan) Then Fail "Тест разрыва: запас контура не должен исключать допустимый участок."
+    If 0.312 - (CDbl(plan(1)) - CDbl(plan(0))) * 0.312 / 0.3 + BREAK_GAP > BREAK_MAX_WIDTH Then _
+        Fail "Тест разрыва: не учтена ширина контура."
     holes(3).X = 0.17
     plan = NdBreakPlan(holes, 3, bounds)
     If IsEmpty(plan) = False Then Fail "Тест разрыва: выбран слишком короткий участок."
@@ -2090,6 +2096,27 @@ Failed:
     NdRestoreBreakGap = " Не восстановлен зазор разрыва: " & Err.Description
 End Function
 
+Private Sub LogBreakGeometry(ByVal view As SldWorks.View, ByVal stage As String)
+    Dim info As Variant, outline As Variant, position As Variant, line As String, i As Long
+    On Error GoTo Failed
+    outline = ReadOutline(view)
+    position = ReadPosition(view)
+    info = view.GetBreakLineInfo2
+    line = "Диагностика разрыва [" & stage & "]: position=" & CStr(position(0)) & "," & CStr(position(1)) & _
+           "; outline=" & CStr(outline(0)) & "," & CStr(outline(1)) & "," & CStr(outline(2)) & "," & CStr(outline(3))
+    If HasItems(info) Then
+        For i = LBound(info) To UBound(info)
+            line = line & "; " & CStr(i) & "=" & CStr(info(i))
+        Next i
+    Else
+        line = line & "; данные линий отсутствуют"
+    End If
+    WriteLog line
+    Exit Sub
+Failed:
+    WriteLog "Диагностика разрыва [" & stage & "] недоступна: " & Err.Description
+End Sub
+
 Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() As NDHole, ByVal holeCount As Long, _
                                     ByRef bounds As NDBounds, ByVal viewScale As Double, _
                                     ByVal created As Collection, ByVal expected As Collection) As Boolean
@@ -2099,9 +2126,11 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     Dim failure As String, rollback As String, gapError As String, firstX As Double, secondX As Double, originX As Double
     Dim breakLines As Variant, inspectError As String
     outline = ReadOutline(view)
+    WriteLog "Разрыв до: контур Y=" & CStr(CDbl(outline(1))) & "..." & CStr(CDbl(outline(3))) & _
+             "; геометрия Y=" & CStr(bounds.MinY) & "..." & CStr(bounds.MaxY)
     plan = NdBreakPlan(holes, holeCount, bounds, CDbl(outline(2)) - CDbl(outline(0)))
     If IsEmpty(plan) Then
-        breakWarnings.Add "Вид [" & currentView & "]: нет свободного участка для длины до 180 мм без закрытия отверстий."
+        breakWarnings.Add "Вид [" & currentView & "]: нет свободного участка для длины до 150 мм без закрытия отверстий."
         Exit Function
     End If
     On Error GoTo Failed
@@ -2139,8 +2168,10 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     If view.IsBroken = False Then Fail "SOLIDWORKS не применил разрыв."
     outline = ReadOutline(view)
     WriteLog "Ширина вида после разрыва, мм=" & CStr((CDbl(outline(2)) - CDbl(outline(0))) * 1000#)
-    If CDbl(outline(2)) - CDbl(outline(0)) > BREAK_MAX_WIDTH + 0.0001 Then Fail "Разрыв не сократил вид до 180 мм."
+    If CDbl(outline(2)) - CDbl(outline(0)) > BREAK_MAX_WIDTH + 0.0001 Then Fail "Разрыв не сократил вид до 150 мм."
     NdReadGeometry view, viewScale, postLines, postLineCount, postHoles, postHoleCount, postBounds
+    WriteLog "Разрыв после: контур Y=" & CStr(CDbl(outline(1))) & "..." & CStr(CDbl(outline(3))) & _
+             "; геометрия Y=" & CStr(postBounds.MinY) & "..." & CStr(postBounds.MaxY)
     If postHoleCount <> holeCount Then Fail "После разрыва изменилось число видимых отверстий."
     NdValidateAll created, expected, viewScale
     breaksCompleted = breaksCompleted + 1
