@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R22_BREAK_NUDGE_20261031"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R23_BREAK_DIAG_OPT_20261031"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -11,6 +11,7 @@ Private Const HOLE_SIDE_TOLERANCE As Double = 0.0001
 Private Const ALLOW_WORKSPACE_LAYOUT As Boolean = True
 Private Const DETAIL_SCALE As Double = 0.2
 Private Const GAP As Double = 0.005
+Private Const VERBOSE_BREAK_GEOMETRY As Boolean = False
 Private Const BREAK_MODEL_THRESHOLD As Double = 1.2
 Private Const BREAK_MAX_WIDTH As Double = 0.15
 Private Const BREAK_GAP As Double = 0.005
@@ -2162,6 +2163,7 @@ End Sub
 
 Private Sub LogBreakGeometry(ByVal view As SldWorks.View, ByVal stage As String)
     Dim info As Variant, outline As Variant, position As Variant, line As String, i As Long
+    If VERBOSE_BREAK_GEOMETRY = False Then Exit Sub
     On Error GoTo Failed
     outline = ReadOutline(view)
     position = ReadPosition(view)
@@ -2190,8 +2192,10 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     Dim failure As String, rollback As String, gapError As String, firstX As Double, secondX As Double, originX As Double
     Dim breakLines As Variant, inspectError As String
     outline = ReadOutline(view)
-    WriteLog "Разрыв до: контур Y=" & CStr(CDbl(outline(1))) & "..." & CStr(CDbl(outline(3))) & _
+    If VERBOSE_BREAK_GEOMETRY Then
+        WriteLog "Разрыв до: контур Y=" & CStr(CDbl(outline(1))) & "..." & CStr(CDbl(outline(3))) & _
              "; геометрия Y=" & CStr(bounds.MinY) & "..." & CStr(bounds.MaxY)
+    End If
     plan = NdBreakPlan(holes, holeCount, bounds, CDbl(outline(2)) - CDbl(outline(0)))
     If IsEmpty(plan) Then
         breakWarnings.Add "Вид [" & currentView & "]: нет свободного участка для длины до 150 мм без закрытия отверстий."
@@ -2200,7 +2204,6 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     On Error GoTo Failed
     MarkStage "Разрыв длинного вида после нанесения размеров"
     If HasItems(view.GetBreakLines) Then Fail "В скопированном виде уже есть линии разрыва."
-    outline = ReadOutline(view)
     firstX = NdBreakSheetX(CDbl(plan(0)), bounds, outline)
     secondX = NdBreakSheetX(CDbl(plan(1)), bounds, outline)
     viewXform = view.GetXform
@@ -2234,8 +2237,10 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     WriteLog "Ширина вида после разрыва, мм=" & CStr((CDbl(outline(2)) - CDbl(outline(0))) * 1000#)
     If CDbl(outline(2)) - CDbl(outline(0)) > BREAK_MAX_WIDTH + 0.0001 Then Fail "Разрыв не сократил вид до 150 мм."
     NdReadGeometry view, viewScale, postLines, postLineCount, postHoles, postHoleCount, postBounds
-    WriteLog "Разрыв после: контур Y=" & CStr(CDbl(outline(1))) & "..." & CStr(CDbl(outline(3))) & _
+    If VERBOSE_BREAK_GEOMETRY Then
+        WriteLog "Разрыв после: контур Y=" & CStr(CDbl(outline(1))) & "..." & CStr(CDbl(outline(3))) & _
              "; геометрия Y=" & CStr(postBounds.MinY) & "..." & CStr(postBounds.MaxY)
+    End If
     If postHoleCount <> holeCount Then Fail "После разрыва изменилось число видимых отверстий."
     NdValidateAll created, expected, viewScale
     breaksCompleted = breaksCompleted + 1
