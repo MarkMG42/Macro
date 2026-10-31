@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R18_BREAK_BALLOON_DIAG_20261031"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R19_BREAK_BALLOON_20261031"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -986,13 +986,15 @@ Private Function FindVisibleHoleFace(ByVal view As SldWorks.View, ByRef holes As
                                                 Set holeLoop = holeLoop.GetNext
                                             Loop
                                             If count > 0 Then WriteLog "Круглых контуров=" & CStr(count) & "; cos(normal)=" & CStr(facing)
-                                            currentStage = "Площадь видимой грани"
-                                            candidateArea = face.GetArea
-                                            currentStage = "Сравнение видимой грани"
-                                            If BetterCandidate(count, candidateArea, holes, area) Then
-                                                holes = count
-                                                area = candidateArea
-                                                Set FindVisibleHoleFace = face
+                                            If count > 0 And count >= holes Then
+                                                currentStage = "Площадь видимой грани"
+                                                candidateArea = face.GetArea
+                                                currentStage = "Сравнение видимой грани"
+                                                If BetterCandidate(count, candidateArea, holes, area) Then
+                                                    holes = count
+                                                    area = candidateArea
+                                                    Set FindVisibleHoleFace = face
+                                                End If
                                             End If
                                         End If
                                     End If
@@ -1440,6 +1442,7 @@ Private Function TryAddPosition(ByVal view As SldWorks.View, ByRef warning As St
         Fail "Позиция сместилась после перестроения."
     MarkStage "Проверка текста позиции"
     If Len(Trim$(note.GetText)) = 0 Then Fail "Позиция не показывает номер из списка вырезов."
+    HidePositionLeader annotation, note
     WriteLog "Позиция: тело=[" & currentBody & "]; текст=[" & note.GetText & "]; X=" & CStr(x) & "; Y=" & CStr(y) & "; количество включено"
     drawingModel.ClearSelection2 True
     TryAddPosition = True
@@ -1459,6 +1462,53 @@ Failed:
     drawingModel.ClearSelection2 True
     On Error GoTo 0
 End Function
+
+Private Sub HidePositionLeader(ByVal annotation As SldWorks.Annotation, ByVal note As SldWorks.Note)
+    Dim status As Long, oldStyle As Long, oldSide As Long, options As SldWorks.BalloonOptions
+    Dim oldSmart As Boolean, oldPerpendicular As Boolean, oldAround As Boolean, oldDashed As Boolean
+    Dim captured As Boolean, changed As Boolean, oldText As String, failure As String, restore As String
+    On Error GoTo Failed
+    MarkStage "Скрытие линии позиции"
+    oldStyle = annotation.GetLeaderStyle
+    oldSide = annotation.GetLeaderSide
+    oldSmart = annotation.GetSmartArrowHeadStyle
+    oldPerpendicular = annotation.GetLeaderPerpendicular
+    oldAround = annotation.GetLeaderAllAround
+    oldDashed = annotation.GetDashedLeader
+    oldText = note.GetText
+    captured = True
+    changed = True
+    status = annotation.SetLeader3(swNO_LEADER, oldSide, oldSmart, oldPerpendicular, oldAround, oldDashed)
+    If status <> 0 Then Fail "SetLeader3: код " & CStr(status)
+    drawingModel.EditRebuild3
+    If annotation.GetLeaderStyle <> swNO_LEADER Then Fail "Линия позиции не скрыта."
+    If note.IsBomBalloon = False Then Fail "Позиция перестала быть BOM-выноской."
+    Set options = note.GetBalloonOptions
+    If options Is Nothing Then Fail "Не прочитаны параметры позиции."
+    If options.ShowQuantity = False Or options.QuantityOverride Then Fail "Количество позиции не подтверждено."
+    If StrComp(note.GetText, oldText, vbBinaryCompare) <> 0 Then Fail "Текст позиции изменился."
+    Exit Sub
+Failed:
+    failure = Err.Description
+    If captured And changed Then
+        On Error Resume Next
+        Err.Clear
+        status = annotation.SetLeader3(oldStyle, oldSide, oldSmart, oldPerpendicular, oldAround, oldDashed)
+        If Err.Number <> 0 Or status <> 0 Then
+            restore = "; ОШИБКА восстановления линии: " & Err.Description & " код " & CStr(status)
+        Else
+            drawingModel.EditRebuild3
+            If Err.Number <> 0 Then
+                restore = "; ОШИБКА перестроения при восстановлении: " & Err.Description
+            ElseIf annotation.GetLeaderStyle <> oldStyle Or note.IsBomBalloon = False Or StrComp(note.GetText, oldText, vbBinaryCompare) <> 0 Then
+                restore = "; ОШИБКА проверки восстановленной позиции"
+            End If
+        End If
+        On Error GoTo 0
+    End If
+    balloonWarnings.Add "Вид [" & currentView & "]: не подтверждено скрытие линии позиции; " & failure & restore
+    WriteLog "Предупреждение позиции: " & failure & restore
+End Sub
 
 Private Sub RemoveCopiedAnnotations(ByVal view As SldWorks.View)
     Dim annotations As Collection, annotation As SldWorks.Annotation, item As Variant
@@ -1920,13 +1970,14 @@ Private Sub NdArcPoint(ByVal center As Variant, ByVal cx As Double, ByVal cy As 
     NdIncludePoint bounds, initialized, x, y
 End Sub
 
-Private Function NdBreakPlan(ByRef holes() As NDHole, ByVal holeCount As Long, ByRef bounds As NDBounds) As Variant
+Private Function NdBreakPlan(ByRef holes() As NDHole, ByVal holeCount As Long, ByRef bounds As NDBounds, Optional ByVal outlineWidth As Double = 0#) As Variant
     Dim starts() As Double, finishes() As Double, leftEdge As Double, rightEdge As Double
     Dim width As Double, required As Double, middleLimit As Double, startX As Double, finishX As Double
     Dim bestStart As Double, bestFinish As Double, cursor As Double, swapStart As Double, swapFinish As Double
     Dim i As Long, j As Long, occupied As Long, hasMiddleHole As Boolean
     width = bounds.MaxX - bounds.MinX
-    required = width - BREAK_MAX_WIDTH + BREAK_GAP + 0.002
+    If outlineWidth <= 0# Then outlineWidth = width
+    required = (outlineWidth - BREAK_MAX_WIDTH + BREAK_GAP + 0.002) * width / outlineWidth
     leftEdge = bounds.MinX + BREAK_END_CLEARANCE
     rightEdge = bounds.MaxX - BREAK_END_CLEARANCE
     For i = 1 To holeCount
@@ -2046,8 +2097,9 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
     Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean, gapChanged As Boolean, insertAttempted As Boolean
     Dim failure As String, rollback As String, gapError As String, firstX As Double, secondX As Double, originX As Double
-    Dim breakLines As Variant
-    plan = NdBreakPlan(holes, holeCount, bounds)
+    Dim breakLines As Variant, inspectError As String
+    outline = ReadOutline(view)
+    plan = NdBreakPlan(holes, holeCount, bounds, CDbl(outline(2)) - CDbl(outline(0)))
     If IsEmpty(plan) Then
         breakWarnings.Add "Вид [" & currentView & "]: нет свободного участка для длины до 180 мм без закрытия отверстий."
         Exit Function
@@ -2083,8 +2135,10 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
         drawing.BreakView
     End If
     drawingModel.EditRebuild3
+    WriteLog "Разрыв после перестроения: IsBroken=" & CStr(view.IsBroken)
     If view.IsBroken = False Then Fail "SOLIDWORKS не применил разрыв."
     outline = ReadOutline(view)
+    WriteLog "Ширина вида после разрыва, мм=" & CStr((CDbl(outline(2)) - CDbl(outline(0))) * 1000#)
     If CDbl(outline(2)) - CDbl(outline(0)) > BREAK_MAX_WIDTH + 0.0001 Then Fail "Разрыв не сократил вид до 180 мм."
     NdReadGeometry view, viewScale, postLines, postLineCount, postHoles, postHoleCount, postBounds
     If postHoleCount <> holeCount Then Fail "После разрыва изменилось число видимых отверстий."
@@ -2098,14 +2152,21 @@ Failed:
     failure = Err.Description
     If insertAttempted And inserted = False Then
         On Error Resume Next
+        Err.Clear
         breakLines = view.GetBreakLines
-        inserted = HasItems(breakLines)
+        If Err.Number <> 0 Then
+            inspectError = Err.Description
+        Else
+            inserted = HasItems(breakLines)
+            If Err.Number <> 0 Then inspectError = Err.Description
+        End If
         On Error GoTo 0
     End If
     If inserted Then
         rollback = NdUndoBreak(view, bounds.MaxX - bounds.MinX)
     End If
     If gapChanged Then gapError = NdRestoreBreakGap(view, oldGap)
+    If Len(inspectError) > 0 Then Fail "Неизвестно состояние частичного разрыва вида [" & currentView & "]: " & inspectError
     If InStr(rollback, "ОШИБКА") > 0 Or Len(gapError) > 0 Then _
         Fail "Не удалось полностью отменить ошибочный разрыв вида [" & currentView & "]: " & failure & rollback & gapError
     If inserted Then NdValidateAll created, expected, viewScale
