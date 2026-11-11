@@ -1,0 +1,5 @@
+{
+  "status": "blocked_by_preexisting_repository_issue",
+  "reason": "Knowledge checker requires missing drawingmerger/PRESERVED_FILES.json. This does not invalidate the candidate VBA syntax checks.",
+  "native_solidworks_run": false
+}
