@@ -5,7 +5,7 @@
   "files": [
     {
       "file": "MergeDrawingsV16_23.bas",
-      "sha256": "90be279177dcce39a11f79c46b8e781f5c8723a70d696878d54171eed28bfc58",
+      "sha256": "085f91f075651428f1931acd0eb5b15c8b19322ce18a4c2595a30ed90d417aeb",
       "parser_wrapper_lines": 0,
       "errors": []
     },
@@ -22,7 +22,6 @@
     "LocalPropertySourceView",
     "MappedPropertyView",
     "EffectivePropertyView",
-    "CaptureDrawing",
     "AddAnnotationStats",
     "ApprovedDimensionCount",
     "ApprovedOmissions",

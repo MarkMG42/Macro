@@ -66,7 +66,7 @@ if archive.exists():
         baseline = z.read('MergeDrawingsV16_22.bas').decode('cp1251')
         assert z.read('FORM_CODE.txt') == (ROOT / 'FORM_CODE.txt').read_bytes()
     old, new = procedures(baseline), procedures(source)
-    changed = {'main', 'AppendDrawing', 'MoveView', 'RebuildDrawing', 'InitRunFolder', 'ExportDrawingToPDF'}
+    changed = {'main', 'AppendDrawing', 'MoveView', 'RebuildDrawing', 'InitRunFolder', 'ExportDrawingToPDF', 'CaptureDrawing'}
     removed = {'GetBaseName', 'ContainsSheetValue'}
     for name, body in old.items():
         if name not in changed | removed:
@@ -87,9 +87,17 @@ assert 'RebuildDrawing' not in procs['main']
 assert 'ContainsSheetValue' not in source
 assert 'pending.Remove CStr(name)' in rebuild
 assert 'Require pending.Count = 0' in rebuild
-assert 'FINAL after save (memory)' in source
+assert 'FINAL before save (complete)' in source
+assert 'VERIFY_AFTER_SAVE' not in source
+assert procs['main'].count('CaptureDrawing(') == 1
+assert procs['main'].index('VerifyDrawing expectedResult, actual') < procs['main'].index('targetModel.Save3')
+assert 'CaptureDrawing' not in procs['main'].split('targetModel.Save3', 1)[1]
 assert 'Set actual = CaptureDrawing(targetModel)' in procs['main']
-assert 'VerifyDrawing expectedResult, current' in procs['AppendDrawing']
+assert 'VerifyDrawing expectedResult, current' not in procs['AppendDrawing']
+assert 'CaptureMappedSheets(targetModel, sheetMap)' in procs['AppendDrawing']
+assert 'CaptureDrawing(targetModel)' not in procs['AppendDrawing']
+assert 'CaptureDrawing(model, "", touched)' in procs['MoveView']
+assert 'selectedSheets.Exists' in procs['CaptureDrawing']
 assert 'MsgBox "выполнено успешно",' in source
 assert 'MsgBox "ошибка, проверьте журнал",' in source
 assert 'SetSheets(swExportData_ExportSpecifiedSheets, names)' in source

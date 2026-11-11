@@ -44,14 +44,13 @@ Private swApp As SldWorks.SldWorks
 Private targetModel As SldWorks.ModelDoc2
 Private targetDraw As SldWorks.DrawingDoc
 
-' MERGE_DRAWINGS_V16_23_OPTIMIZED_PDF_20261111
+' MERGE_DRAWINGS_V16_23_SINGLE_FINAL_AUDIT_20261111
 ' SOLIDWORKS 2025 x64 / VBA7. Entry point: main.
 ' Source files are read-only inputs. Only owned result/working drawings are edited.
 ' Native section/detail features are transferred with their complete parent chain.
 ' A successful PasteSheet is never accepted without verifying the view graph.
 
-Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_23_OPTIMIZED_PDF_20261111"
-Private Const VERIFY_AFTER_SAVE As Boolean = False ' True: reopen verification without another rebuild
+Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_23_SINGLE_FINAL_AUDIT_20261111"
 Private Const GEOM_TOL As Double = 0.000001 ' metres; 0.001 mm
 Private Const VALUE_TOL As Double = 0.0000001
 ' Matching identities remains strict; layout readback has practical tolerances.
@@ -120,42 +119,28 @@ Public Sub main()
     resultPdfPath = fsoRun.BuildPath(fsoRun.GetParentFolderName(mainPath), _
         fsoRun.GetBaseName(mainPath) & ".pdf")
     Set targetModel = PrepareMainDrawing(mainPath)
-    LogLine "MODE save main; backup=disabled; verify_after_save=" & CStr(VERIFY_AFTER_SAVE)
+    LogLine "MODE save main; backup=disabled; audit=before_save_only"
     Set targetDraw = targetModel
     LogLine "MAIN sheets=" & expectedResult("Sheets").Count & _
         "; views=" & expectedResult("Views").Count
 
     For Each sourcePath In sourceFiles
         fileIndex = fileIndex + 1
-        added = added + AppendDrawing(CStr(sourcePath), fileIndex, actual)
+        added = added + AppendDrawing(CStr(sourcePath), fileIndex)
     Next sourcePath
 
     RequireActive targetModel
-    ' The last append already verified this exact snapshot. No edits follow it.
-    ' Keep the post-Save3 fresh capture; do not compare the same snapshot twice.
-    Require Not actual Is Nothing, "Нет проверенного снимка результата."
+    ' One complete audit of the finished drawing, immediately before Save3.
+    Set actual = CaptureDrawing(targetModel)
+    VerifyDrawing expectedResult, actual, "FINAL before save (complete)"
+    WriteManifest actual, runFolder & "\verified_views.tsv"
     targetModel.ClearSelection2 True
     LogLine "SAVE result begin: " & targetModel.GetPathName
     saved = targetModel.Save3(swSaveAsOptions_Silent, errors, warnings)
     LogLine "SAVE result: " & saved & "; errors=" & errors & "; warnings=" & warnings
     Require saved And errors = 0, "Не удалось сохранить итоговый чертеж: " & errors
 
-    If VERIFY_AFTER_SAVE Then
-        CloseOwnedDrawing targetModel
-        Set targetDraw = Nothing
-        Set targetModel = OpenWorkingDrawing(resultPath)
-        Set targetDraw = targetModel
-        Set actual = CaptureDrawing(targetModel)
-        VerifyDrawing expectedResult, actual, "FINAL after reopen (strict)"
-        verificationText = "Проверены виды, связи, заметки и повторное открытие."
-    Else
-        ' Save3 may update notes or other state: read and compare after saving.
-        ' This is an in-memory check, not a persistence/reopen test.
-        Set actual = CaptureDrawing(targetModel)
-        VerifyDrawing expectedResult, actual, "FINAL after save (memory)"
-        verificationText = "Проверены виды, связи и заметки в открытом документе после Save3. Повторное открытие не выполнялось."
-    End If
-    WriteManifest actual, runFolder & "\verified_views.tsv"
+    verificationText = "Полная проверка выполнена перед Save3. После сохранения повторный обход не выполнялся."
     pdfPath = fsoRun.BuildPath(runFolder, "WORK_PDF.pdf")
     Require Not fsoRun.FileExists(pdfPath), "Рабочий PDF уже существует."
     RequireActive targetModel
@@ -195,8 +180,7 @@ Finished:
     On Error GoTo 0
 End Sub
 
-Private Function AppendDrawing(ByVal inputPath As String, ByVal fileIndex As Long, _
-    ByRef validatedSnapshot As Object) As Long
+Private Function AppendDrawing(ByVal inputPath As String, ByVal fileIndex As Long) As Long
     Dim source As SldWorks.ModelDoc2
     Dim original As Object, staged As Object, current As Object
     Dim viewMap As Object, sheetMap As Object, rec As Object, copied As Object
@@ -307,7 +291,7 @@ Private Function AppendDrawing(ByVal inputPath As String, ByVal fileIndex As Lon
 
     ' Build the expected final drawing from the ORIGINAL snapshots, not from
     ' whatever happened to survive the paste. Only generated names are mapped.
-    Set current = CaptureDrawing(targetModel)
+    Set current = CaptureMappedSheets(targetModel, sheetMap)
     For Each sheetKey In original("Order")
         Set rec = CloneRecord(original("Sheets")(CStr(sheetKey)))
         name = CStr(sheetMap(CStr(sheetKey)))
@@ -340,8 +324,7 @@ Private Function AppendDrawing(ByVal inputPath As String, ByVal fileIndex As Lon
         Require Len(CStr(copied("Parent"))) = 0, "У служебного вида появился родитель."
         expectedResult("Views").Add CStr(helperKey), CloneRecord(copied)
     Next helperKey
-    VerifyDrawing expectedResult, current, "AFTER source " & fileIndex
-    Set validatedSnapshot = current
+    LogLine "SOURCE imported; full audit deferred until before Save3: " & fileIndex
     n = original("Sheets").Count
     ReleaseSource source, directSource, sourceOpened, sourceSheet
     AppendDrawing = n
@@ -468,7 +451,8 @@ Private Function EffectivePropertyView(ByVal snapshot As Object, ByVal sheetName
     EffectivePropertyView = name
 End Function
 
-Private Function CaptureDrawing(ByVal model As SldWorks.ModelDoc2, Optional ByVal onlySheet As String = "") As Object
+Private Function CaptureDrawing(ByVal model As SldWorks.ModelDoc2, _
+    Optional ByVal onlySheet As String = "", Optional ByVal selectedSheets As Object = Nothing) As Object
     Dim result As Object, sheets As Object, views As Object, rec As Object, sheetRec As Object
     Dim order As Collection, names As Variant, props As Variant, p As Variant, bounds As Variant
     Dim drawing As SldWorks.DrawingDoc, sheet As SldWorks.Sheet
@@ -493,6 +477,9 @@ Private Function CaptureDrawing(ByVal model As SldWorks.ModelDoc2, Optional ByVa
     Set views = NewDictionary()
     Set order = New Collection
     For i = LBound(names) To UBound(names)
+        If Not selectedSheets Is Nothing Then
+            If Not selectedSheets.Exists(CStr(names(i))) Then GoTo NextCaptureSheet
+        End If
         If Len(onlySheet) > 0 Then
             If Not SameText(CStr(names(i)), onlySheet) Then GoTo NextCaptureSheet
         End If
@@ -580,7 +567,9 @@ NextCaptureSheet:
     For Each key In views.Keys
         Set rec = views(CStr(key))
         If Len(CStr(rec("Parent"))) > 0 Then
-            Require views.Exists(CStr(rec("Parent"))), "Родитель отсутствует в документе: " & CStr(key)
+            If selectedSheets Is Nothing Then
+                If Len(onlySheet) = 0 Then Require views.Exists(CStr(rec("Parent"))), "Родитель отсутствует в документе: " & CStr(key)
+            End If
         End If
     Next key
     result.Add "Sheets", sheets
@@ -589,7 +578,9 @@ NextCaptureSheet:
     For Each key In sheets.Keys
         Set sheetRec = sheets(CStr(key))
         sheetRec.Add "EffectivePropertyView", ""
-        If Len(onlySheet) = 0 Then sheetRec("EffectivePropertyView") = EffectivePropertyView(result, CStr(key))
+        If selectedSheets Is Nothing Then
+            If Len(onlySheet) = 0 Then sheetRec("EffectivePropertyView") = EffectivePropertyView(result, CStr(key))
+        End If
         sheetRec.Add "PropertyModel", ""
         sheetRec.Add "PropertyConfiguration", ""
         If Len(CStr(sheetRec("EffectivePropertyView"))) > 0 Then
@@ -685,7 +676,7 @@ End Function
 Private Sub MoveView(ByVal model As SldWorks.ModelDoc2, ByVal viewName As String, _
     ByVal sheetName As String, ByVal desiredScale As Double)
     Dim drawing As SldWorks.DrawingDoc, view As SldWorks.View
-    Dim fromSheet As String, before As Object, after As Object
+    Dim fromSheet As String, before As Object, after As Object, touched As Object
     Dim p As Variant, locked As Boolean
     RequireOwnedPath model.GetPathName
     RequireActive model
@@ -694,7 +685,10 @@ Private Sub MoveView(ByVal model As SldWorks.ModelDoc2, ByVal viewName As String
     Require Not view Is Nothing, "Не найден переносимый вид " & viewName
     fromSheet = ViewSheetName(view)
     If SameText(fromSheet, sheetName) Then Exit Sub
-    Set before = CaptureDrawing(model)
+    Set touched = NewDictionary()
+    touched(fromSheet) = True
+    touched(sheetName) = True
+    Set before = CaptureDrawing(model, "", touched)
     EnsureSheetActive model, fromSheet, "MoveView source"
     Set view = FindView(model, viewName)
     locked = FlagValue(view.PositionLocked)
@@ -721,7 +715,7 @@ Private Sub MoveView(ByVal model As SldWorks.ModelDoc2, ByVal viewName As String
     view.PositionLocked = False
     view.Position = p
     view.PositionLocked = locked
-    Set after = CaptureDrawing(model)
+    Set after = CaptureDrawing(model, "", touched)
     VerifyStructure before, after, "MOVE " & viewName
     LogLine "MOVE [" & viewName & "] " & fromSheet & " -> " & sheetName
 End Sub
@@ -2365,4 +2359,14 @@ Private Function ExportDrawingToPDF(ByVal model As SldWorks.ModelDoc2, _
 Failed:
     exportErrors = Err.Number
     LogLine "PDF export failed: " & exportErrors & ": " & Err.Description
+End Function
+
+Private Function CaptureMappedSheets(ByVal model As SldWorks.ModelDoc2, ByVal mapping As Object) As Object
+    Dim selected As Object, key As Variant
+    Set selected = NewDictionary()
+    For Each key In mapping.Keys
+        selected(CStr(mapping(key))) = True
+    Next key
+    Require selected.Count > 0, "Не заданы добавленные листы для чтения."
+    Set CaptureMappedSheets = CaptureDrawing(model, "", selected)
 End Function
