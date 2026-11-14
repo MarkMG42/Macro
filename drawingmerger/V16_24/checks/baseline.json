@@ -1,0 +1,23 @@
+{
+  "baseline_commit": "b729275066129ff5a4b792f35f75ffd156a3c463",
+  "baseline_user_confirmed": "2026-11-14",
+  "unchanged_V16_23_sha256": {
+    "SHA256SUMS.txt": "d1aa174b7922aedeef7a0df02e39532aba9f12d528dc4e734df01f3ce12ae78e",
+    "MergeDrawingsV16_23.bas": "085f91f075651428f1931acd0eb5b15c8b19322ce18a4c2595a30ed90d417aeb",
+    "FORM_CODE.txt": "b78721434262b02f3a5d332929cf71ed172437c9a5737276eb1f477528410f4c",
+    "MergeDrawingsV16_23.txt": "8013a8981a900ae67ff7f1476b09183f5e30c799f5fadf3923060e07e717d0a6",
+    "SOLIDWORKS_MERGE_V16_23_OPTIMIZED_PDF_VBA_FORM.zip": "f906984bbef13ea347a39e52bb2665de34edcf48a9015a428d718bc127375dcb",
+    "REVIEW_RU.md": "a3de32a56dda3872517bb51d151554263433e6e4f35f76e0916eb8fe91449de6",
+    "README_RU.md": "98f33da5211fa1225889d9b9544ff07ac9ca29ef1573803c1622b68b1bc856fa",
+    "checks/preservation.json": "4cb6fabf196561641c6cd169e57a8e175384da654953968fb3575088ed67a3dd",
+    "checks/validation.json": "1df114a819d4c0acaf2853bfcfa9ecaeb6c5e82a3377711e74fc143aee3996fd",
+    "checks/knowledge_check.json": "12a37177239824cc8ebf3583a225f51aedd003d936403a5ae0ee88b6ad2bc9cb",
+    "tools/validate.py": "deb2dfe179929cb5236cc59a6f74e9f5ef4eec918990377f14d2b5e8e46567db"
+  },
+  "selected_optimizations": [
+    1,
+    2,
+    4
+  ],
+  "native_solidworks_run": false
+}
