@@ -2,7 +2,7 @@
   "files": [
     {
       "file": "MergeDrawingsV16_24.bas",
-      "sha256": "5e1aa75c08acb788392fb93d85b4d95cf02b4dbb841998e3f098bb1768f17db5",
+      "sha256": "1e9844806effa8be13ceab82511c7ed354806edb97e92c85c46d420d4774c960",
       "parser_wrapper_lines": 0,
       "errors": []
     },
@@ -91,5 +91,7 @@
   "antlr_version": "4.13.2",
   "native_vba_compile": false,
   "native_solidworks_run": false,
-  "speedup_measured": false
+  "speedup_measured": false,
+  "timer_api": "GetTickCount64",
+  "timer_native_test": false
 }

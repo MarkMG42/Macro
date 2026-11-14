@@ -41,6 +41,20 @@ assert b['main'].count('Set actual = CaptureDrawing(targetModel)')==1
 assert b['main'].index('VerifyDrawing expectedResult') < b['main'].index('targetModel.Save3')
 assert s.count('model.ForceRebuild3(False)')==1
 assert (ROOT/'FORM_CODE.txt').read_bytes()==(ROOT.parent/'V16_23/FORM_CODE.txt').read_bytes()
+# Timing is isolated to main plus new helpers; preserve the optimization checks.
+assert 'As LongLong' in s and 'GetTickCount64' in b['PerfClock']
+main=b['main']
+assert main.index('GetOrderedSourceFiles') < main.index('PerfStart') < main.index('CheckSavedInput CStr(sourcePath)')
+assert main.index('PerfNext "FINAL_AUDIT"') < main.index('Set actual = CaptureDrawing(targetModel)')
+assert main.index('WriteStatus "SUCCESS"') < main.index('PerfFinish "SUCCESS"') < main.index('MsgBox "выполнено успешно"')
+assert main.index('failureNumber = Err.Number') < main.index('PerfFinish "FAILED"')
+assert 'perfActive = False' in b['PerfFinish']
+assert 'TIMING.tsv' in b['PerfFinish']
+assert 'On Error GoTo Failed' in b['PerfFinish']
+for stage in ['CHECK_INPUTS','PREPARE_MAIN','FINAL_AUDIT','SAVE3','PDF_EXPORT','PDF_PUBLISH']:
+ assert 'PerfNext "'+stage+'"' in main
+assert 'PerfNext "SOURCE_"' in main
+assert 'Timer' not in b['PerfClock'] and 'Now' not in b['PerfClock']
 reports=[]
 for name,encoding in [('MergeDrawingsV16_24.bas','cp1251'),('FORM_CODE.txt','utf-8')]:
  data=(ROOT/name).read_bytes();text=data.decode(encoding);wrapper=1 if name=='FORM_CODE.txt' else 0
@@ -48,6 +62,6 @@ for name,encoding in [('MergeDrawingsV16_24.bas','cp1251'),('FORM_CODE.txt','utf
  err=Errors();lexer=vbaLexer(InputStream(text));lexer.removeErrorListeners();lexer.addErrorListener(err)
  parser=vbaParser(CommonTokenStream(lexer));parser.removeErrorListeners();parser.addErrorListener(err);parser.startRule()
  reports.append(dict(file=name,sha256=hashlib.sha256(data).hexdigest(),parser_wrapper_lines=wrapper,errors=err.items))
-report=dict(files=reports,preserved_procedures=preserved,scope_1_2_4_passed=True,grammar='grammars-v4/vba/vba7_1',grammar_commit='2766c2eed04f285dc763617c9459650892fcf5b9',antlr_version='4.13.2',native_vba_compile=False,native_solidworks_run=False,speedup_measured=False)
+report=dict(files=reports,preserved_procedures=preserved,scope_1_2_4_passed=True,grammar='grammars-v4/vba/vba7_1',grammar_commit='2766c2eed04f285dc763617c9459650892fcf5b9',antlr_version='4.13.2',native_vba_compile=False,native_solidworks_run=False,speedup_measured=False,timer_api="GetTickCount64",timer_native_test=False)
 (ROOT/'checks/validation.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))
 sys.exit(any(r['errors'] for r in reports))

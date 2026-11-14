@@ -27,6 +27,8 @@ Private Type OPENFILENAMEW
     FlagsEx As Long
 End Type
 
+Private Declare PtrSafe Function GetTickCount64 Lib "kernel32" () As LongLong
+
 Private Declare PtrSafe Function GetOpenFileNameW _
     Lib "comdlg32.dll" (ByRef p As OPENFILENAMEW) As Long
 
@@ -44,13 +46,13 @@ Private swApp As SldWorks.SldWorks
 Private targetModel As SldWorks.ModelDoc2
 Private targetDraw As SldWorks.DrawingDoc
 
-' MERGE_DRAWINGS_V16_24_INDEX_GROUP_STRUCTURE_20261114
+' MERGE_DRAWINGS_V16_24_INDEX_GROUP_STRUCTURE_TIMED_20261114
 ' SOLIDWORKS 2025 x64 / VBA7. Entry point: main.
 ' Source files are read-only inputs. Only owned result/working drawings are edited.
 ' Native section/detail features are transferred with their complete parent chain.
 ' A successful PasteSheet is never accepted without verifying the view graph.
 
-Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_24_INDEX_GROUP_STRUCTURE_20261114"
+Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_24_INDEX_GROUP_STRUCTURE_TIMED_20261114"
 Private Const GEOM_TOL As Double = 0.000001 ' metres; 0.001 mm
 Private Const VALUE_TOL As Double = 0.0000001
 ' Matching identities remains strict; layout readback has practical tolerances.
@@ -67,6 +69,9 @@ Private fsoRun As Object
 Private expectedResult As Object
 Private indexedModel As SldWorks.ModelDoc2
 Private viewIndex As Object
+Private perfRows As Collection
+Private perfStarted As Double, perfStageStarted As Double
+Private perfStage As String, perfActive As Boolean
 Private runBusy As Boolean
 
 Public Sub main()
@@ -80,6 +85,9 @@ Public Sub main()
     On Error GoTo Failed
     If runBusy Then Exit Sub
     runBusy = True
+    perfActive = False
+    perfStage = ""
+    Set perfRows = Nothing
     InvalidateViewIndex
     Set swApp = Application.SldWorks
     Set initialActive = swApp.ActiveDoc
@@ -113,10 +121,13 @@ Public Sub main()
     Set sourceFiles = GetOrderedSourceFiles(sourceFiles, mainPath)
     If sourceFiles Is Nothing Then GoTo Finished
     If sourceFiles.Count = 0 Then GoTo Finished
+    PerfStart
+    PerfNext "CHECK_INPUTS"
     For Each sourcePath In sourceFiles
         CheckSavedInput CStr(sourcePath)
     Next sourcePath
 
+    PerfNext "PREPARE_MAIN"
     ' The selected main drawing is the result; no backup is created.
     resultPath = mainPath
     resultPdfPath = fsoRun.BuildPath(fsoRun.GetParentFolderName(mainPath), _
@@ -129,20 +140,24 @@ Public Sub main()
 
     For Each sourcePath In sourceFiles
         fileIndex = fileIndex + 1
+        PerfNext "SOURCE_" & Format$(fileIndex, "0000")
         added = added + AppendDrawing(CStr(sourcePath), fileIndex)
     Next sourcePath
 
+    PerfNext "FINAL_AUDIT"
     RequireActive targetModel
     ' One complete audit of the finished drawing, immediately before Save3.
     Set actual = CaptureDrawing(targetModel)
     VerifyDrawing expectedResult, actual, "FINAL before save (complete)"
     WriteManifest actual, runFolder & "\verified_views.tsv"
+    PerfNext "SAVE3"
     targetModel.ClearSelection2 True
     LogLine "SAVE result begin: " & targetModel.GetPathName
     saved = targetModel.Save3(swSaveAsOptions_Silent, errors, warnings)
     LogLine "SAVE result: " & saved & "; errors=" & errors & "; warnings=" & warnings
     Require saved And errors = 0, "Не удалось сохранить итоговый чертеж: " & errors
 
+    PerfNext "PDF_EXPORT"
     verificationText = "Полная проверка выполнена перед Save3. После сохранения повторный обход не выполнялся."
     pdfPath = fsoRun.BuildPath(runFolder, "WORK_PDF.pdf")
     Require Not fsoRun.FileExists(pdfPath), "Рабочий PDF уже существует."
@@ -153,11 +168,13 @@ Public Sub main()
     Require saved And errors = 0, "Чертеж проверен, но экспорт PDF не выполнен. Код: " & errors
     Require fsoRun.FileExists(pdfPath), "API сообщил об экспорте, но PDF отсутствует."
     Require fsoRun.GetFile(pdfPath).Size > 0, "Получен пустой файл PDF."
+    PerfNext "PDF_PUBLISH"
     PublishPDF pdfPath, resultPdfPath
     LogLine "RESULT drawing: " & resultPath
     LogLine "RESULT PDF: " & resultPdfPath
     LogLine "SUCCESS sheets=" & targetDraw.GetSheetCount & "; added=" & added
     WriteStatus "SUCCESS", verificationText
+    PerfFinish "SUCCESS"
     MsgBox "выполнено успешно", vbInformation, "Объединение V16.24"
     GoTo Finished
 
@@ -171,12 +188,14 @@ Failed:
     LogLine "FAILED: no automatic Save3 of the unverified main drawing."
     WriteStatus "FAILED", failure & vbCrLf & "Основной чертеж: " & mainPath & vbCrLf & _
         "Автосохранение при ошибке не выполнялось; если Save3 уже начинался, основной файл мог измениться."
+    PerfFinish "FAILED"
     Set targetDraw = Nothing
     If Not initialActive Is Nothing Then RequireActive initialActive
     MsgBox "ошибка, проверьте журнал", vbCritical, "Объединение V16.24"
     On Error GoTo 0
 Finished:
     On Error Resume Next
+    PerfFinish "CANCELLED"
     If Not logStream Is Nothing Then logStream.Close
     Set logStream = Nothing
     InvalidateViewIndex
@@ -2458,3 +2477,76 @@ Private Function CaptureStructure(ByVal model As SldWorks.ModelDoc2, ByVal touch
     EnsureSheetActive model, originalSheet, "CaptureStructure restore"
     Set CaptureStructure = result
 End Function
+
+Private Function PerfClock() As Double
+    ' Monotonic uptime in seconds; independent of midnight and clock changes.
+    PerfClock = CDbl(GetTickCount64()) / 1000#
+End Function
+
+Private Sub PerfStart()
+    Set perfRows = New Collection
+    perfStarted = PerfClock()
+    perfStage = ""
+    perfActive = True
+    LogLine "TIMING START: computation only; file selection dialogs excluded"
+End Sub
+
+Private Sub PerfCloseStage(ByVal tick As Double, ByVal status As String)
+    Dim seconds As Double, cumulative As Double, row As String
+    If Len(perfStage) = 0 Then Exit Sub
+    seconds = tick - perfStageStarted
+    cumulative = tick - perfStarted
+    row = perfStage & vbTab & PerfNumber(seconds) & vbTab & PerfNumber(cumulative) & vbTab & status
+    perfRows.Add row
+    LogLine "TIMING " & perfStage & ": seconds=" & PerfNumber(seconds) & "; status=" & status
+    perfStage = ""
+End Sub
+
+Private Function PerfNumber(ByVal seconds As Double) As String
+    PerfNumber = Replace(Format$(seconds, "0.000"), ",", ".")
+End Function
+
+Private Sub PerfNext(ByVal stage As String)
+    Dim tick As Double
+    If Not perfActive Then Exit Sub
+    tick = PerfClock()
+    PerfCloseStage tick, "DONE"
+    perfStage = stage
+    perfStageStarted = tick
+End Sub
+
+Private Sub PerfFinish(ByVal status As String)
+    Dim tick As Double, seconds As Double, stream As Object, row As Variant
+    Dim number As Long, message As String
+    On Error GoTo Failed
+    If Not perfActive Then Exit Sub
+    tick = PerfClock()
+    perfActive = False
+    If status = "SUCCESS" Then
+        PerfCloseStage tick, "DONE"
+    Else
+        PerfCloseStage tick, status
+    End If
+    seconds = tick - perfStarted
+    LogLine "TIMING TOTAL: seconds=" & PerfNumber(seconds) & "; status=" & status
+    perfRows.Add "TOTAL" & vbTab & PerfNumber(seconds) & vbTab & PerfNumber(seconds) & vbTab & status
+    Set stream = fsoRun.CreateTextFile(runFolder & "\TIMING.tsv", True, True)
+    stream.WriteLine "BUILD_ID" & vbTab & BUILD_ID
+    stream.WriteLine "RUN" & vbTab & runToken
+    stream.WriteLine "MODE" & vbTab & "computation_only; source dialogs excluded; stages are exclusive; TOTAL includes stages"
+    stream.WriteLine "stage" & vbTab & "seconds" & vbTab & "cumulative_seconds" & vbTab & "status"
+    For Each row In perfRows
+        stream.WriteLine CStr(row)
+    Next row
+    stream.Close
+    Set perfRows = Nothing
+    Exit Sub
+Failed:
+    number = Err.Number
+    message = Err.Description
+    On Error Resume Next
+    perfActive = False
+    If Not stream Is Nothing Then stream.Close
+    Set perfRows = Nothing
+    LogLine "TIMING REPORT FAILED " & number & ": " & message
+End Sub
