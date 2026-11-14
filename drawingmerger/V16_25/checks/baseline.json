@@ -1,0 +1,18 @@
+{
+  "baseline_commit": "beb152f3c179a7743da9aa4144e190efca1cf15e",
+  "unchanged_V16_24_sha256": {
+    "SHA256SUMS.txt": "90a0b66e3aa3e24e469b2e154b1bdbf12e33786dd13841317ade9004b18449bd",
+    "MergeDrawingsV16_24.bas": "1e9844806effa8be13ceab82511c7ed354806edb97e92c85c46d420d4774c960",
+    "FORM_CODE.txt": "b78721434262b02f3a5d332929cf71ed172437c9a5737276eb1f477528410f4c",
+    "SOLIDWORKS_MERGE_V16_24_OPTIMIZATIONS_1_2_4_VBA_FORM.zip": "a7477df37a829e7e2f9d86074ea49ebd206364f3fedff2de6c819abca0f6a82b",
+    "REVIEW_RU.md": "f638e9596a30d70cb0d5bf7ab52cce13b8de14fd6c220837eff41ebd4c5c09aa",
+    "README_RU.md": "1a9a50d2add03f691e5f897c4a2ffe488146d56fab041be9a51805acfee50f35",
+    "MergeDrawingsV16_24.txt": "10aaf5fd45b82bcc86484725ae2809cdb8962385126ff60ba72220dcfe51babf",
+    "checks/validation.json": "4d11dbefa31f10672d0dbd2ba77a131232c4e1a228ae511bb45eb9ccf1883594",
+    "checks/timing_scope.json": "f0591c51f98374643d7d7616aba9458a6eab89fc9a5e676baf0c467ae8b26169",
+    "checks/baseline.json": "30274e3fd9d59bdaec1f6bf2b901e148f8ecdbec6ed9dfe6aa07844aec10fce8",
+    "tools/validate.py": "d48bd4b728d2725adf3af7dc4963adfe65444313138f15ad6c5dfb2a52895bac"
+  },
+  "native_solidworks_run": false,
+  "speedup_measured": false
+}
