@@ -1,5 +1,12 @@
-Attribute VB_Name = "MergeDrawingsV16_28"
+Attribute VB_Name = "MergeDrawingsV16_29"
 Option Explicit
+
+' V16.29. Import this BAS into a SOLIDWORKS 2025 x64 VBA macro.
+' Add a UserForm named frmDrawingOrder; paste FORM_CODE.txt into its code window.
+' Entry point: main. References: SOLIDWORKS 2025, constants, Microsoft Forms 2.0.
+' Output: main drawing + PDF; errors and timings: <drawing>_merge.log (last run).
+' No runs directory. Private TEMP copies are removed after completion when safe.
+' Dimension losses: REVIEW_REQUIRED, result stays open, no automatic Save3/PDF.
 
 Private Type OPENFILENAMEW
     lStructSize As Long
@@ -46,13 +53,13 @@ Private swApp As SldWorks.SldWorks
 Private targetModel As SldWorks.ModelDoc2
 Private targetDraw As SldWorks.DrawingDoc
 
-' MERGE_DRAWINGS_V16_28_MANUAL_DIMENSION_REVIEW_20261114
+' MERGE_DRAWINGS_V16_29_NO_RUNS_20261114
 ' SOLIDWORKS 2025 x64 / VBA7. Entry point: main.
 ' Source files are read-only inputs. Only owned result/working drawings are edited.
 ' Native section/detail features are transferred with their complete parent chain.
 ' A successful PasteSheet is never accepted without verifying the view graph.
 
-Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_28_MANUAL_DIMENSION_REVIEW_20261114"
+Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_29_NO_RUNS_20261114"
 Private Const GEOM_TOL As Double = 0.000001 ' metres; 0.001 mm
 Private Const VALUE_TOL As Double = 0.0000001
 ' Matching identities remains strict; layout readback has practical tolerances.
@@ -61,15 +68,16 @@ Private Const SCALE_TOL As Double = 0.001
 Private Const ANGLE_TOL As Double = 0.00872664626 ' radians; 0.5 degrees
 Private Const PAPER_TOL As Double = 0.0001 ' metres; 0.1 mm
 Private Const MAX_ITEMS As Long = 100000
-Private runFolder As String
+Private workFolder As String
+Private logPath As String
+Private workspaceOwned As Boolean, preserveWorkspace As Boolean
+Private workingFiles As Object
 Private publishedDrawingPath As String
-Private runToken As String
 Private logStream As Object
 Private fsoRun As Object
 Private expectedResult As Object
 Private indexedModel As SldWorks.ModelDoc2
 Private viewIndex As Object
-Private perfRows As Collection
 Private perfStarted As Double, perfStageStarted As Double
 Private perfStage As String, perfActive As Boolean
 Private Const FORCE_ALL_REBUILDS As Boolean = False
@@ -98,21 +106,24 @@ Public Sub main()
     RestoreAllUI
     perfActive = False
     perfStage = ""
-    Set perfRows = Nothing
     InvalidateViewIndex
     Set swApp = Application.SldWorks
     Set initialActive = swApp.ActiveDoc
     Set targetModel = Nothing
     Set targetDraw = Nothing
     Set expectedResult = Nothing
-    runFolder = ""
+    workFolder = ""
+    logPath = ""
+    workspaceOwned = False
+    preserveWorkspace = False
+    Set workingFiles = NewDictionary()
     publishedDrawingPath = ""
     Set fsoRun = CreateObject("Scripting.FileSystemObject")
 
     mainPath = PickOneDrawing("Выберите ОСНОВНОЙ чертеж", "")
     If Len(mainPath) = 0 Then GoTo Finished
     CheckSavedInput mainPath
-    InitRunFolder mainPath
+    InitWorkspace mainPath
     LogLine "BUILD_ID: " & BUILD_ID
     LogLine "SOLIDWORKS: " & swApp.RevisionNumber
     LogLine "MAIN: " & mainPath
@@ -165,18 +176,15 @@ Public Sub main()
     Set actual = CaptureDrawing(targetModel)
     Set dimensionIssues = CollectDimensionLosses(expectedResult, actual, firstReviewSheet)
     If dimensionIssues.Count > 0 Then
-        WriteDimensionReview dimensionIssues
-        WriteManifest actual, runFolder & "\review_views.tsv"
         WriteStatus "REVIEW_REQUIRED", DimensionReviewText(dimensionIssues)
         LogLine "AUDIT NOT PASSED: dimension losses; remaining checks require manual inspection. No Save3 or PDF."
         RequireActive targetModel
         If Len(firstReviewSheet) > 0 Then EnsureSheetActive targetModel, firstReviewSheet, "Manual dimension review"
         PerfFinish "REVIEW_REQUIRED"
-        MsgBox DimensionReviewMessage(dimensionIssues), vbExclamation, "Объединение V16.28: требуется исправление"
+        MsgBox DimensionReviewMessage(dimensionIssues), vbExclamation, "Объединение V16.29: требуется исправление"
         GoTo Finished
     End If
     VerifyDrawing expectedResult, actual, "FINAL before save (complete)"
-    WriteManifest actual, runFolder & "\verified_views.tsv"
     PerfNext "SAVE3"
     targetModel.ClearSelection2 True
     LogLine "SAVE result begin: " & targetModel.GetPathName
@@ -186,7 +194,7 @@ Public Sub main()
 
     PerfNext "PDF_EXPORT"
     verificationText = "Полная проверка выполнена перед Save3. После сохранения повторный обход не выполнялся."
-    pdfPath = fsoRun.BuildPath(runFolder, "WORK_PDF.pdf")
+    pdfPath = WorkspaceFile("WORK_PDF.pdf")
     Require Not fsoRun.FileExists(pdfPath), "Рабочий PDF уже существует."
     RequireActive targetModel
     targetModel.ClearSelection2 True
@@ -202,7 +210,7 @@ Public Sub main()
     LogLine "SUCCESS sheets=" & targetDraw.GetSheetCount & "; added=" & added
     WriteStatus "SUCCESS", verificationText
     PerfFinish "SUCCESS"
-    MsgBox "выполнено успешно", vbInformation, "Объединение V16.28"
+    MsgBox "выполнено успешно", vbInformation, "Объединение V16.29"
     GoTo Finished
 
 Failed:
@@ -219,12 +227,14 @@ Failed:
     PerfFinish "FAILED"
     Set targetDraw = Nothing
     If Not initialActive Is Nothing Then RequireActive initialActive
-    MsgBox "ошибка, проверьте журнал", vbCritical, "Объединение V16.28"
+    MsgBox "ошибка, проверьте журнал" & vbCrLf & failure & vbCrLf & _
+        "Журнал: " & logPath, vbCritical, "Объединение V16.29"
     On Error GoTo 0
 Finished:
     On Error Resume Next
     RestoreAllUI
     PerfFinish "CANCELLED"
+    CleanupWorkspace
     If Not logStream Is Nothing Then logStream.Close
     Set logStream = Nothing
     InvalidateViewIndex
@@ -1515,57 +1525,95 @@ End Sub
 
 Private Sub RequireOwnedPath(ByVal path As String)
     Dim root As String, full As String
-    Require Len(runFolder) > 0, "Рабочая папка не создана."
-    root = NormalizePath(fsoRun.GetAbsolutePathName(runFolder)) & "\"
     full = NormalizePath(fsoRun.GetAbsolutePathName(path))
     If Len(publishedDrawingPath) > 0 Then
         If SameText(full, NormalizePath(fsoRun.GetAbsolutePathName(publishedDrawingPath))) Then Exit Sub
     End If
-    Require Left$(full, Len(root)) = root, "Запрещено изменять файл вне папки запуска: " & path
+    Require workspaceOwned, "Временная рабочая папка не создана."
+    root = NormalizePath(fsoRun.GetAbsolutePathName(workFolder)) & "\"
+    Require Left$(full, Len(root)) = root, "Запрещено изменять файл вне рабочей папки: " & path
+    Require Not workingFiles Is Nothing, "Не задан список рабочих файлов."
+    Require workingFiles.Exists(full), "Файл не зарегистрирован макросом: " & path
 End Sub
 
-Private Sub InitRunFolder(ByVal mainPath As String)
-    Dim base As String, parent As String, token As String, suffix As Long
+Private Sub InitWorkspace(ByVal mainPath As String)
+    Dim base As String, tempRoot As String, token As String
     base = fsoRun.GetParentFolderName(mainPath)
     Require Len(base) > 0, "Не определена папка основного чертежа."
     Require fsoRun.FolderExists(base), "Не найдена папка основного чертежа: " & base
-    parent = fsoRun.BuildPath(base, "runs")
-    If fsoRun.FolderExists(parent) = False Then fsoRun.CreateFolder parent
-    token = Format$(Now, "yyyymmdd_hhnnss")
-    runToken = token
-    runFolder = fsoRun.BuildPath(parent, runToken)
-    Do While fsoRun.FolderExists(runFolder)
-        suffix = suffix + 1
-        runToken = token & "_" & CStr(suffix)
-        runFolder = fsoRun.BuildPath(parent, runToken)
-    Loop
-    fsoRun.CreateFolder runFolder
-    Set logStream = fsoRun.CreateTextFile(runFolder & "\merge.log", False, True)
+    logPath = fsoRun.BuildPath(base, fsoRun.GetBaseName(mainPath) & "_merge.log")
+    Set logStream = fsoRun.CreateTextFile(logPath, True, True)
+    tempRoot = fsoRun.GetSpecialFolder(2).Path
+    token = Format$(Now, "yyyymmdd_hhnnss") & "_" & fsoRun.GetTempName
+    workFolder = fsoRun.BuildPath(tempRoot, "DrawingMerger_" & token)
+    ' CreateFolder must succeed before this instance owns the directory.
+    fsoRun.CreateFolder workFolder
+    workspaceOwned = True
+    LogLine "Temporary workspace: " & workFolder
+End Sub
+
+Private Function WorkspaceFile(ByVal name As String) As String
+    Dim path As String
+    Require workspaceOwned, "Временная рабочая папка не создана."
+    Require Len(name) > 0 And name = fsoRun.GetFileName(name), "Некорректное имя рабочего файла."
+    path = fsoRun.BuildPath(workFolder, name)
+    Require Not fsoRun.FileExists(path), "Рабочий файл уже существует: " & path
+    workingFiles(NormalizePath(fsoRun.GetAbsolutePathName(path))) = True
+    WorkspaceFile = path
+End Function
+
+Private Function CleanupWorkingFile(ByVal path As String) As Boolean
+    Dim opened As SldWorks.ModelDoc2
+    On Error GoTo Failed
+    RequireOwnedPath path
+    Require Not SameText(NormalizePath(path), NormalizePath(publishedDrawingPath)), "Нельзя удалить основной чертёж."
+    If Not fsoRun.FileExists(path) Then
+        CleanupWorkingFile = True
+        Exit Function
+    End If
+    ' A failed CloseDoc must never lead to deleting an open working drawing.
+    If LCase$(fsoRun.GetExtensionName(path)) = "slddrw" Then
+        Require Not swApp Is Nothing, "Не проверены открытые документы."
+        Set opened = swApp.GetOpenDocumentByName(path)
+        Require opened Is Nothing, "Рабочий документ ещё открыт: " & path
+    End If
+    fsoRun.DeleteFile path, False
+    CleanupWorkingFile = Not fsoRun.FileExists(path)
+    Exit Function
+Failed:
+    LogLine "TEMP cleanup skipped: " & path & "; " & Err.Description
+End Function
+
+Private Sub CleanupWorkspace()
+    Dim key As Variant, complete As Boolean, folder As Object
+    On Error GoTo Failed
+    If Not workspaceOwned Then Exit Sub
+    If preserveWorkspace Then
+        LogLine "TEMP retained for PDF recovery: " & workFolder
+        Exit Sub
+    End If
+    complete = True
+    For Each key In workingFiles.Keys
+        If Not CleanupWorkingFile(CStr(key)) Then complete = False
+    Next key
+    Set folder = fsoRun.GetFolder(workFolder)
+    ' Never recursively remove unexpected files or subdirectories.
+    If folder.Files.Count > 0 Or folder.SubFolders.Count > 0 Then complete = False
+    If complete Then
+        fsoRun.DeleteFolder workFolder, False
+        workspaceOwned = False
+        LogLine "Temporary workspace removed."
+    Else
+        LogLine "TEMP not empty; retained: " & workFolder
+    End If
+    Exit Sub
+Failed:
+    LogLine "TEMP cleanup failed: " & workFolder & "; " & Err.Description
 End Sub
 
 Private Sub WriteStatus(ByVal status As String, ByVal message As String)
-    Dim stream As Object
-    If Len(runFolder) = 0 Then Exit Sub
-    Set stream = fsoRun.CreateTextFile(runFolder & "\STATUS.txt", True, True)
-    stream.WriteLine BUILD_ID
-    stream.WriteLine status
-    stream.WriteLine message
-    stream.Close
-End Sub
-
-Private Sub WriteManifest(ByVal snapshot As Object, ByVal path As String)
-    Dim stream As Object, key As Variant, rec As Object
-    RequireOwnedPath path
-    Set stream = fsoRun.CreateTextFile(path, False, True)
-    stream.WriteLine "sheet" & vbTab & "view" & vbTab & "type" & vbTab & "parent" & vbTab & _
-        "model" & vbTab & "configuration" & vbTab & "x_m" & vbTab & "y_m" & vbTab & "scale"
-    For Each key In snapshot("Views").Keys
-        Set rec = snapshot("Views")(CStr(key))
-        stream.WriteLine CStr(rec("Sheet")) & vbTab & CStr(key) & vbTab & CStr(rec("Type")) & vbTab & _
-            CStr(rec("Parent")) & vbTab & CStr(rec("Model")) & vbTab & CStr(rec("Configuration")) & vbTab & _
-            CStr(rec("X")) & vbTab & CStr(rec("Y")) & vbTab & CStr(rec("Scale"))
-    Next key
-    stream.Close
+    LogLine "STATUS: " & status
+    LogLine message
 End Sub
 
 Private Sub LogLine(ByVal message As String)
@@ -1653,7 +1701,7 @@ Private Function PrepareSource(ByVal path As String, ByVal fileIndex As Long, _
             CStr(snapshot("Views")(CStr(key))("Carrier"))) Then needsCopy = True
     Next key
     If needsCopy Then
-        Set copy = CloneInput(path, runFolder & "\SOURCE_" & runToken & "_" & Format$(fileIndex, "0000") & ".slddrw", _
+        Set copy = CloneInput(path, WorkspaceFile("SOURCE_" & Format$(fileIndex, "0000") & "_" & fsoRun.GetTempName & ".slddrw"), _
             model, snapshot, initialSheet)
         ReleaseSource model, True, opened, initialSheet
         Set model = copy
@@ -2401,14 +2449,12 @@ Private Function ElapsedSeconds(ByVal started As Double) As Double
 End Function
 
 Private Sub InitFailureLog()
-    Dim folder As String
     ' Called only by the failure handler under On Error Resume Next.
     If fsoRun Is Nothing Then Set fsoRun = CreateObject("Scripting.FileSystemObject")
-    folder = fsoRun.BuildPath(fsoRun.GetSpecialFolder(2).Path, "DrawingMerger_V16_28")
-    If Not fsoRun.FolderExists(folder) Then fsoRun.CreateFolder folder
-    InitRunFolder fsoRun.BuildPath(folder, "failure.slddrw")
+    logPath = fsoRun.BuildPath(fsoRun.GetSpecialFolder(2).Path, "DrawingMerger_" & fsoRun.GetTempName & ".log")
+    Set logStream = fsoRun.CreateTextFile(logPath, False, True)
     LogLine "BUILD_ID: " & BUILD_ID
-    LogLine "Fallback log: " & runFolder
+    LogLine "Fallback log: " & logPath
 End Sub
 
 Private Sub PublishPDF(ByVal stagedPath As String, ByVal finalPath As String)
@@ -2418,7 +2464,7 @@ Private Sub PublishPDF(ByVal stagedPath As String, ByVal finalPath As String)
     RequireOwnedPath stagedPath
     Require fsoRun.FileExists(stagedPath), "Рабочий PDF отсутствует."
     Require fsoRun.GetFile(stagedPath).Size > 0, "Рабочий PDF пуст."
-    previousPath = fsoRun.BuildPath(runFolder, "PREVIOUS_PDF.pdf")
+    previousPath = WorkspaceFile("PREVIOUS_PDF.pdf")
     hadPrevious = fsoRun.FileExists(finalPath)
     If hadPrevious Then fsoRun.CopyFile finalPath, previousPath, False
     publishing = True
@@ -2438,7 +2484,11 @@ Failed:
         ElseIf fsoRun.FileExists(finalPath) Then
             fsoRun.DeleteFile finalPath, False
         End If
-        If Err.Number <> 0 Then LogLine "PDF rollback failed: " & Err.Number & ": " & Err.Description
+        If Err.Number <> 0 Then
+            preserveWorkspace = True
+            LogLine "PDF rollback failed: " & Err.Number & ": " & Err.Description
+            LogLine "Previous PDF retained for recovery: " & previousPath
+        End If
     End If
     On Error GoTo 0
     Err.Raise number, "PublishPDF", message
@@ -2544,7 +2594,6 @@ Private Function PerfClock() As Double
 End Function
 
 Private Sub PerfStart()
-    Set perfRows = New Collection
     perfStarted = PerfClock()
     perfStage = ""
     perfActive = True
@@ -2552,12 +2601,9 @@ Private Sub PerfStart()
 End Sub
 
 Private Sub PerfCloseStage(ByVal tick As Double, ByVal status As String)
-    Dim seconds As Double, cumulative As Double, row As String
+    Dim seconds As Double
     If Len(perfStage) = 0 Then Exit Sub
     seconds = tick - perfStageStarted
-    cumulative = tick - perfStarted
-    row = perfStage & vbTab & PerfNumber(seconds) & vbTab & PerfNumber(cumulative) & vbTab & status
-    perfRows.Add row
     LogLine "TIMING " & perfStage & ": seconds=" & PerfNumber(seconds) & "; status=" & status
     perfStage = ""
 End Sub
@@ -2576,7 +2622,7 @@ Private Sub PerfNext(ByVal stage As String)
 End Sub
 
 Private Sub PerfFinish(ByVal status As String)
-    Dim tick As Double, seconds As Double, stream As Object, row As Variant
+    Dim tick As Double, seconds As Double
     Dim number As Long, message As String
     On Error GoTo Failed
     If Not perfActive Then Exit Sub
@@ -2589,25 +2635,12 @@ Private Sub PerfFinish(ByVal status As String)
     End If
     seconds = tick - perfStarted
     LogLine "TIMING TOTAL: seconds=" & PerfNumber(seconds) & "; status=" & status
-    perfRows.Add "TOTAL" & vbTab & PerfNumber(seconds) & vbTab & PerfNumber(seconds) & vbTab & status
-    Set stream = fsoRun.CreateTextFile(runFolder & "\TIMING.tsv", True, True)
-    stream.WriteLine "BUILD_ID" & vbTab & BUILD_ID
-    stream.WriteLine "RUN" & vbTab & runToken
-    stream.WriteLine "MODE" & vbTab & "computation_only; source dialogs excluded; stages are exclusive; TOTAL includes stages"
-    stream.WriteLine "stage" & vbTab & "seconds" & vbTab & "cumulative_seconds" & vbTab & "status"
-    For Each row In perfRows
-        stream.WriteLine CStr(row)
-    Next row
-    stream.Close
-    Set perfRows = Nothing
     Exit Sub
 Failed:
     number = Err.Number
     message = Err.Description
     On Error Resume Next
     perfActive = False
-    If Not stream Is Nothing Then stream.Close
-    Set perfRows = Nothing
     LogLine "TIMING REPORT FAILED " & number & ": " & message
 End Sub
 
@@ -2631,7 +2664,6 @@ Private Sub DetailClose(ByVal tick As Double, ByVal status As String)
     If Len(detailStage) = 0 Then Exit Sub
     label = detailPrefix & detailStage
     seconds = tick - detailStarted
-    perfRows.Add label & vbTab & PerfNumber(seconds) & vbTab & PerfNumber(tick - perfStarted) & vbTab & status
     LogLine "TIMING " & label & ": seconds=" & PerfNumber(seconds) & "; status=" & status
     detailStage = ""
 End Sub
@@ -2863,14 +2895,6 @@ Private Function DimensionReviewText(ByVal issues As Collection) As String
     DimensionReviewText = text
 End Function
 
-Private Sub WriteDimensionReview(ByVal issues As Collection)
-    Dim stream As Object
-    Set stream = fsoRun.CreateTextFile(runFolder & "\REVIEW_REQUIRED.txt", True, True)
-    stream.WriteLine BUILD_ID
-    stream.WriteLine DimensionReviewText(issues)
-    stream.Close
-End Sub
-
 Private Function DimensionReviewMessage(ByVal issues As Collection) As String
     Dim text As String, item As Variant, candidate As String
     text = "Объединение требует исправления: обнаружена потеря размеров." & vbCrLf & _
@@ -2879,12 +2903,12 @@ Private Function DimensionReviewMessage(ByVal issues As Collection) As String
         candidate = CStr(item)
         If InStr(candidate, vbCrLf) > 0 Then candidate = Left$(candidate, InStr(candidate, vbCrLf) - 1)
         If Len(text) + Len(candidate) > 600 Then
-            text = text & "Остальные ошибки перечислены в отчёте." & vbCrLf
+            text = text & "Остальные ошибки перечислены в журнале." & vbCrLf
             Exit For
         End If
         text = text & candidate & vbCrLf & vbCrLf
     Next item
     text = text & "Проверьте весь результат, исправьте и сохраните вручную." & vbCrLf & _
-        "Полный отчёт: " & runFolder & "\REVIEW_REQUIRED.txt"
+        "Полный журнал: " & logPath
     DimensionReviewMessage = text
 End Function
