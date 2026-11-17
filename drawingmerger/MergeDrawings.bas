@@ -534,6 +534,44 @@ Private Function EffectivePropertyView(ByVal snapshot As Object, ByVal sheetName
     EffectivePropertyView = name
 End Function
 
+Private Function EnsureViewModel(ByVal view As SldWorks.View, _
+    ByVal drawingModel As SldWorks.ModelDoc2) As SldWorks.ModelDoc2
+    Dim referenced As SldWorks.ModelDoc2
+    Dim path As String, extension As String, documentType As Long
+    Dim errors As Long, warnings As Long
+    Set referenced = view.ReferencedDocument
+    If Not referenced Is Nothing Then
+        Set EnsureViewModel = referenced
+        Exit Function
+    End If
+    path = view.GetReferencedModelName
+    LogLine "VIEW MODEL load required: view=" & view.GetName2 & "; path=" & path
+    Require Len(path) > 0, "Не задана модель вида " & view.GetName2
+    ' Never guess a different model with the same filename.
+    Require Left$(path, 2) = "\\" Or Mid$(path, 2, 2) = ":\", _
+        "Нужен полный путь модели вида " & view.GetName2 & ": " & path
+    Set referenced = swApp.GetOpenDocumentByName(path)
+    If referenced Is Nothing Then
+        Require fsoRun.FileExists(path), "Не найден файл модели вида " & view.GetName2 & ": " & path
+        extension = LCase$(fsoRun.GetExtensionName(path))
+        If extension = "sldasm" Then
+            documentType = swDocASSEMBLY
+        ElseIf extension = "sldprt" Then
+            documentType = swDocPART
+        Else
+            Require False, "Неподдерживаемый файл модели вида " & view.GetName2 & ": " & path
+        End If
+        Set referenced = swApp.OpenDoc6(path, documentType, _
+            swOpenDocOptions_Silent Or swOpenDocOptions_ReadOnly, "", errors, warnings)
+        RequireActive drawingModel
+        LogLine "VIEW MODEL opened: path=" & path & "; errors=" & errors & "; warnings=" & warnings
+    End If
+    Require Not referenced Is Nothing, "Не загружена модель вида " & view.GetName2 & ": " & path & "; код=" & errors
+    Require SameText(NormalizePath(referenced.GetPathName), NormalizePath(path)), _
+        "Загружена другая модель вида " & view.GetName2 & ": " & path
+    Set EnsureViewModel = referenced
+End Function
+
 Private Function CaptureDrawing(ByVal model As SldWorks.ModelDoc2, _
     Optional ByVal onlySheet As String = "", Optional ByVal selectedSheets As Object = Nothing) As Object
     Dim result As Object, sheets As Object, views As Object, rec As Object, sheetRec As Object
@@ -601,8 +639,7 @@ Private Function CaptureDrawing(ByVal model As SldWorks.ModelDoc2, _
             rec.Add "Model", NormalizePath(view.GetReferencedModelName)
             rec.Add "Configuration", view.ReferencedConfiguration
             If Len(CStr(rec("Model"))) > 0 Then
-                Set refDoc = view.ReferencedDocument
-                Require Not refDoc Is Nothing, "Не загружена модель вида " & view.GetName2
+                Set refDoc = EnsureViewModel(view, model)
                 SuspendDocumentUI refDoc
                 rec("Model") = NormalizePath(refDoc.GetPathName)
             End If
@@ -2589,8 +2626,7 @@ Private Function CaptureStructure(ByVal model As SldWorks.ModelDoc2, ByVal touch
             rec.Add "Model", NormalizePath(view.GetReferencedModelName)
             rec.Add "Configuration", view.ReferencedConfiguration
             If Len(CStr(rec("Model"))) > 0 Then
-                Set refDoc = view.ReferencedDocument
-                Require Not refDoc Is Nothing, "Не загружена модель структурного снимка."
+                Set refDoc = EnsureViewModel(view, model)
                 SuspendDocumentUI refDoc
                 rec("Model") = NormalizePath(refDoc.GetPathName)
             End If
