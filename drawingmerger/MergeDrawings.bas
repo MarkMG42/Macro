@@ -1,13 +1,12 @@
-Attribute VB_Name = "MergeDrawingsV16_31"
+Attribute VB_Name = "MergeDrawingsV16_29"
 Option Explicit
 
-' V16.31. Import this BAS into a SOLIDWORKS 2025 x64 VBA macro.
+' V16.29. Import this BAS into a SOLIDWORKS 2025 x64 VBA macro.
 ' Add a UserForm named frmDrawingOrder; paste FORM_CODE.txt into its code window.
 ' Entry point: main. References: SOLIDWORKS 2025, constants, Microsoft Forms 2.0.
 ' Output: main drawing + PDF; errors and timings: <drawing>_merge.log (last run).
 ' No runs directory. Private TEMP copies are removed after completion when safe.
 ' Dimension losses: REVIEW_REQUIRED, result stays open, no automatic Save3/PDF.
-' Unattached component-property notes are copied as-is, excluded from link repair.
 
 Private Type OPENFILENAMEW
     lStructSize As Long
@@ -54,13 +53,13 @@ Private swApp As SldWorks.SldWorks
 Private targetModel As SldWorks.ModelDoc2
 Private targetDraw As SldWorks.DrawingDoc
 
-' MERGE_DRAWINGS_V16_31_SAFE_NOTE_CONTEXT_20261117
+' MERGE_DRAWINGS_V16_29_NO_RUNS_20261114
 ' SOLIDWORKS 2025 x64 / VBA7. Entry point: main.
 ' Source files are read-only inputs. Only owned result/working drawings are edited.
 ' Native section/detail features are transferred with their complete parent chain.
 ' A successful PasteSheet is never accepted without verifying the view graph.
 
-Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_31_SAFE_NOTE_CONTEXT_20261117"
+Private Const BUILD_ID As String = "MERGE_DRAWINGS_V16_29_NO_RUNS_20261114"
 Private Const GEOM_TOL As Double = 0.000001 ' metres; 0.001 mm
 Private Const VALUE_TOL As Double = 0.0000001
 ' Matching identities remains strict; layout readback has practical tolerances.
@@ -182,7 +181,7 @@ Public Sub main()
         RequireActive targetModel
         If Len(firstReviewSheet) > 0 Then EnsureSheetActive targetModel, firstReviewSheet, "Manual dimension review"
         PerfFinish "REVIEW_REQUIRED"
-        MsgBox DimensionReviewMessage(dimensionIssues), vbExclamation, "Объединение V16.31: требуется исправление"
+        MsgBox DimensionReviewMessage(dimensionIssues), vbExclamation, "Объединение V16.29: требуется исправление"
         GoTo Finished
     End If
     VerifyDrawing expectedResult, actual, "FINAL before save (complete)"
@@ -211,7 +210,7 @@ Public Sub main()
     LogLine "SUCCESS sheets=" & targetDraw.GetSheetCount & "; added=" & added
     WriteStatus "SUCCESS", verificationText
     PerfFinish "SUCCESS"
-    MsgBox "выполнено успешно", vbInformation, "Объединение V16.31"
+    MsgBox "выполнено успешно", vbInformation, "Объединение V16.29"
     GoTo Finished
 
 Failed:
@@ -229,7 +228,7 @@ Failed:
     Set targetDraw = Nothing
     If Not initialActive Is Nothing Then RequireActive initialActive
     MsgBox "ошибка, проверьте журнал" & vbCrLf & failure & vbCrLf & _
-        "Журнал: " & logPath, vbCritical, "Объединение V16.31"
+        "Журнал: " & logPath, vbCritical, "Объединение V16.29"
     On Error GoTo 0
 Finished:
     On Error Resume Next
@@ -1792,49 +1791,23 @@ Private Function LocalizeTargetPropertyView(ByVal snapshot As Object, ByVal sour
 End Function
 
 ' Keep live component links. Never substitute evaluated text for a property expression.
-Private Function NoteViewContext(ByVal view As SldWorks.View) As String
-    Dim sheet As SldWorks.Sheet, viewName As String, sheetName As String
-    ' Diagnostics must not introduce a new failure while describing a note.
-    NoteViewContext = "лист=[не определён]; вид=[не определён]"
-    On Error GoTo Finished
-    viewName = view.GetName2
-    NoteViewContext = "лист=[не определён]; вид=[" & viewName & "]"
-    If view.Type = swDrawingSheet Then
-        ' GetFirstView is a sheet pseudo-view; View.Sheet may return Nothing.
-        sheetName = viewName
-    Else
-        Set sheet = view.Sheet
-        If Not sheet Is Nothing Then sheetName = sheet.GetName
-    End If
-    If Len(sheetName) > 0 Then NoteViewContext = "лист=[" & sheetName & "]; вид=[" & viewName & "]"
-Finished:
-End Function
-
 Private Function CaptureLinkedNotes(ByVal view As SldWorks.View) As Collection
     Dim result As Collection, notes As Variant, i As Long
     Dim note As SldWorks.Note, annotation As SldWorks.Annotation, rec As Object
-    Dim raw As String, p As Variant, attachments As String, context As String, viewContext As String
-    Dim number As Long, message As String
-    On Error GoTo Failed
-    viewContext = NoteViewContext(view)
-    context = viewContext
+    Dim raw As String, p As Variant, attachments As String
     Set result = New Collection
     notes = view.GetNotes
     If IsArray(notes) Then
         For i = LBound(notes) To UBound(notes)
-            context = viewContext & "; индекс заметки=" & i
             Set note = notes(i)
             Require Not note Is Nothing, "Пустой объект заметки при чтении."
             raw = note.PropertyLinkedText
             If IsComponentPropertyNote(raw) Then
-                context = context & "; заметка=[" & note.GetName & "]"
                 Set annotation = note.GetAnnotation
                 Require Not annotation Is Nothing, "Не прочитана аннотация связанной заметки."
                 attachments = NoteAttachmentSignature(annotation, view)
-                If attachments = "0" Then
-                    ' Leave the physical note and its expression untouched. Its general
-                    ' note/annotation counts remain in AddAnnotationStats/VerifyAnnotations.
-                    LogLine "LINKED NOTE SKIPPED (no attachment): " & context & "; expression=[" & raw & "]"
+                If Len(attachments) = 0 Then
+                    LogLine "LINKED NOTE SKIPPED (empty attachment): view=" & view.GetName2 & "; note=" & note.GetName
                     GoTo NextLinkedNote
                 End If
                 Set rec = NewDictionary()
@@ -1856,13 +1829,7 @@ NextLinkedNote:
         Require view.GetNoteCount = 0, "Не прочитан массив заметок: " & view.GetName2
     End If
     Set CaptureLinkedNotes = result
-    Exit Function
-Failed:
-    number = Err.Number
-    message = Err.Description
-    Err.Raise number, "CaptureLinkedNotes", context & vbCrLf & message
 End Function
-
 
 Private Function IsComponentPropertyNote(ByVal raw As String) As Boolean
     IsComponentPropertyNote = (InStr(1, raw, "$PRPSMODEL:", vbTextCompare) > 0 And _
@@ -1873,30 +1840,20 @@ Private Function NoteAttachmentSignature(ByVal annotation As SldWorks.Annotation
     Dim attached As Variant, i As Long, entity As SldWorks.Entity
     Dim obj As Object, component As SldWorks.Component2, item As String
     Dim drawingComponent As SldWorks.DrawingComponent, parts() As String, j As Long, tmp As String
-    Dim count As Long, liveCount As Long
+    Dim count As Long
     count = annotation.GetAttachedEntityCount3
-    Require count >= 0, "Некорректное число привязок связанной заметки."
-    NoteAttachmentSignature = "0"
+    NoteAttachmentSignature = CStr(count)
     If count = 0 Then Exit Function
     attached = annotation.GetAttachedEntities3
     Require IsArray(attached), "Не прочитаны привязки связанной заметки."
     Require UBound(attached) - LBound(attached) + 1 = count, "Неполный список привязок заметки."
-    ' SW can report leaders while returning Nothing for every attached entity.
-    ' Only an entirely empty set is treated as unattached; mixed sets stay strict.
-    For i = LBound(attached) To UBound(attached)
-        Set obj = attached(i)
-        If Not obj Is Nothing Then liveCount = liveCount + 1
-    Next i
-    If liveCount = 0 Then
-        LogLine "LINKED NOTE EMPTY ATTACHMENT SLOTS: " & NoteViewContext(view) & "; reported=" & count
-        Exit Function
-    End If
-    Require liveCount = count, "Часть привязок связанной заметки пуста; требуется ручная проверка."
-    NoteAttachmentSignature = CStr(count)
     ReDim parts(LBound(attached) To UBound(attached))
     For i = LBound(attached) To UBound(attached)
         Set obj = attached(i)
-        Require Not obj Is Nothing, "Пустая привязка связанной заметки."
+        If obj Is Nothing Then
+            NoteAttachmentSignature = ""
+            Exit Function
+        End If
         Set component = Nothing
         If TypeOf obj Is SldWorks.Component2 Then
             Set component = obj
