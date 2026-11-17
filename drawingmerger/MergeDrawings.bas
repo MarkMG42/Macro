@@ -1806,8 +1806,8 @@ Private Function CaptureLinkedNotes(ByVal view As SldWorks.View) As Collection
                 Set annotation = note.GetAnnotation
                 Require Not annotation Is Nothing, "Ќе прочитана аннотаци€ св€занной заметки."
                 attachments = NoteAttachmentSignature(annotation, view)
-                If Len(attachments) = 0 Then
-                    LogLine "LINKED NOTE SKIPPED (empty attachment): view=" & view.GetName2 & "; note=" & note.GetName
+                If Len(attachments) = 0 Or attachments = "0" Then
+                    LogLine "LINKED NOTE SKIPPED (unresolved attachment): view=" & view.GetName2 & "; note=" & note.GetName
                     GoTo NextLinkedNote
                 End If
                 Set rec = NewDictionary()
@@ -1840,7 +1840,8 @@ Private Function NoteAttachmentSignature(ByVal annotation As SldWorks.Annotation
     Dim attached As Variant, i As Long, entity As SldWorks.Entity
     Dim obj As Object, component As SldWorks.Component2, item As String
     Dim drawingComponent As SldWorks.DrawingComponent, parts() As String, j As Long, tmp As String
-    Dim count As Long
+    Dim count As Long, failureNumber As Long, failureText As String
+    On Error GoTo Failed
     count = annotation.GetAttachedEntityCount3
     NoteAttachmentSignature = CStr(count)
     If count = 0 Then Exit Function
@@ -1849,24 +1850,24 @@ Private Function NoteAttachmentSignature(ByVal annotation As SldWorks.Annotation
     Require UBound(attached) - LBound(attached) + 1 = count, "Ќеполный список прив€зок заметки."
     ReDim parts(LBound(attached) To UBound(attached))
     For i = LBound(attached) To UBound(attached)
+        Set obj = Nothing
         Set obj = attached(i)
-        If obj Is Nothing Then
-            NoteAttachmentSignature = ""
-            Exit Function
-        End If
+        If obj Is Nothing Then GoTo SkipAttachment
         Set component = Nothing
         If TypeOf obj Is SldWorks.Component2 Then
             Set component = obj
         ElseIf TypeOf obj Is SldWorks.DrawingComponent Then
             Set drawingComponent = obj
             Set component = drawingComponent.Component
-        Else
-            ' Unsupported attachment objects must stop repair, never select another part.
+        ElseIf TypeOf obj Is SldWorks.Entity Then
             Set entity = obj
             ' A section entity needs the component instance in this drawing view.
             Set drawingComponent = entity.GetDrawingComponent(view)
             If Not drawingComponent Is Nothing Then Set component = drawingComponent.Component
             If component Is Nothing Then Set component = entity.GetComponent
+        Else
+            LogLine "LINKED NOTE unsupported attachment: type=" & TypeName(obj)
+            GoTo SkipAttachment
         End If
         Require Not component Is Nothing, "Ќе определена деталь прив€зки св€занной заметки."
         item = NormalizePath(component.GetPathName) & "|" & component.ReferencedConfiguration & "|" & component.Name2
@@ -1881,6 +1882,20 @@ Private Function NoteAttachmentSignature(ByVal annotation As SldWorks.Annotation
         Next j
     Next i
     NoteAttachmentSignature = NoteAttachmentSignature & ":" & Join(parts, vbTab)
+    Exit Function
+SkipAttachment:
+    NoteAttachmentSignature = ""
+    Exit Function
+Failed:
+    failureNumber = Err.Number
+    failureText = Err.Description
+    ' Error 13 is ignored only while reading a note attachment, never for views.
+    If failureNumber = 13 Then
+        LogLine "LINKED NOTE attachment skipped: error=13; " & failureText
+        NoteAttachmentSignature = ""
+        Exit Function
+    End If
+    Err.Raise failureNumber, "NoteAttachmentSignature", failureText
 End Function
 
 Private Function RemapComponentViews(ByVal raw As String, ByVal mapping As Object) As String
